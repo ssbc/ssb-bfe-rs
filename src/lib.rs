@@ -21,42 +21,26 @@ lazy_static! {
     static ref SIG_SUBSTRING_REGEX: Regex = Regex::new(r"([A-Za-z0-9\\/+]{43}=).").unwrap();
 }
 
-/// Encoded value for string types (`u8`).
-pub const STRING_TYPE: u8 = 60;
-/// Encoded value for boolean types (`u8`).
-pub const BOOL_TYPE: u8 = 61;
-/// Encoded value for null types (`u8`).
-pub const NULL_TYPE: u8 = 62;
-/// Encoded value for signature types (`u8`).
-pub const SIGNATURE_TYPE: u8 = 40;
-
-/*
-enum BfeType {
-    Identity = 0,
-    Message = 1,
-    Blob = 2,
-    DiffieHellmanKey = 3,
-    Signature = 4,
-    BoxEncoding = 5,
-    ValueTypes = 6,
-}
-*/
-
-/// Represents any valid feed type and the corresponding `u8` value.
-#[derive(Debug, PartialEq)]
-pub enum FeedType {
-    Classic = 0,    // CLASSICFEEDTYPE
-    GabbyGrove = 1, // GGFEEDTYPE
-    BendyButt = 3,  // BBFEEDTYPE
-}
-
-/// Represents any valid message type and the corresponding `u8` value.
-#[derive(Debug, PartialEq)]
-pub enum MessageType {
-    Classic = 10,    // CLASSICMSGTYPE
-    GabbyGrove = 11, // GGMSGTYPE
-    BendyButt = 14,  // BBMSGTYPE
-}
+/// Encoded value for string types.
+pub const STRING_TYPE: &[u8] = &[0x06, 0x00];
+/// Encoded value for boolean types.
+pub const BOOL_TYPE: &[u8] = &[0x06, 0x01];
+/// Encoded value for null types.
+pub const NULL_TYPE: &[u8] = &[0x06, 0x02];
+/// Encoded value for signature types.
+pub const SIGNATURE_TYPE: &[u8] = &[0x04, 0x00];
+/// Encoded value for classic (legacy) feed types.
+pub const CLASSIC_FEED_TYPE: &[u8] = &[0x00, 0x00];
+/// Encoded value for Gabby Grove (GG) feed types.
+pub const GG_FEED_TYPE: &[u8] = &[0x00, 0x01];
+/// Encoded value for Bendy Butt (BB) feed types.
+pub const BB_FEED_TYPE: &[u8] = &[0x00, 0x03];
+/// Encoded value for classic (legacy) message types.
+pub const CLASSIC_MSG_TYPE: &[u8] = &[0x01, 0x00];
+/// Encoded value for Gabby Grove (GG) message types.
+pub const GG_MSG_TYPE: &[u8] = &[0x01, 0x01];
+/// Encoded value for Bendy Butt (BB) message types.
+pub const BB_MSG_TYPE: &[u8] = &[0x01, 0x04];
 
 /// Represents any valid encoded BFE value.
 #[derive(Debug, PartialEq)]
@@ -70,25 +54,24 @@ pub enum ConvertedValue {
 }
 
 /// Take a feed identity (key) as a string and return the type.
-pub fn get_feed_type(feed: &str) -> Result<FeedType> {
+pub fn get_feed_type(feed: &str) -> Result<Vec<u8>> {
     let feed_type;
     if feed.ends_with(".ed25519") {
-        feed_type = FeedType::Classic
+        feed_type = CLASSIC_FEED_TYPE
     } else if feed.ends_with(".bbfeed-v1") {
-        feed_type = FeedType::BendyButt
+        feed_type = BB_FEED_TYPE
     } else if feed.ends_with(".ggfeed-v1") {
-        feed_type = FeedType::GabbyGrove
+        feed_type = GG_FEED_TYPE
     } else {
         return Err(anyhow!("The feed type is of an unknown format"));
     };
 
-    Ok(feed_type)
+    Ok(feed_type.to_vec())
 }
 
 /// Take a feed identity (key) as a string and return the encoded bytes as a vector.
 pub fn encode_feed(feed: &str) -> Result<Vec<u8>> {
-    let feed_type = get_feed_type(feed)?;
-    let feed_code = feed_type as u8;
+    let mut encoded_feed = get_feed_type(feed)?;
 
     let caps = FEED_SUBSTRING_REGEX
         .captures(feed)
@@ -98,32 +81,30 @@ pub fn encode_feed(feed: &str) -> Result<Vec<u8>> {
         .context("Failed to retrieve captured substring key")?
         .as_str();
 
-    let mut feed_vec = vec![feed_code];
-    decode_config_buf(feed_substring, base64::STANDARD, &mut feed_vec)?;
+    decode_config_buf(feed_substring, base64::STANDARD, &mut encoded_feed)?;
 
-    Ok(feed_vec)
+    Ok(encoded_feed)
 }
 
 /// Take a message key as a string and return the type.
-pub fn get_msg_type(msg: &str) -> Result<MessageType> {
+pub fn get_msg_type(msg: &str) -> Result<Vec<u8>> {
     let msg_type;
     if msg.ends_with(".sha256") {
-        msg_type = MessageType::Classic
+        msg_type = CLASSIC_MSG_TYPE
     } else if msg.ends_with(".bbmsg-v1") {
-        msg_type = MessageType::BendyButt
+        msg_type = BB_MSG_TYPE
     } else if msg.ends_with(".ggmsg-v1") {
-        msg_type = MessageType::GabbyGrove
+        msg_type = GG_MSG_TYPE
     } else {
         return Err(anyhow!("The message type is unknown"));
     };
 
-    Ok(msg_type)
+    Ok(msg_type.to_vec())
 }
 
 /// Take a message key as a string and return the encoded bytes as a vector.
 pub fn encode_msg(msg: &str) -> Result<Vec<u8>> {
-    let msg_type = get_msg_type(msg)?;
-    let msg_code = msg_type as u8;
+    let mut encoded_msg = get_msg_type(msg)?;
 
     let caps = MSG_SUBSTRING_REGEX
         .captures(msg)
@@ -133,10 +114,9 @@ pub fn encode_msg(msg: &str) -> Result<Vec<u8>> {
         .context("Failed to retrieve captured substring key")?
         .as_str();
 
-    let mut msg_vec = vec![msg_code];
-    decode_config_buf(msg_substring, base64::STANDARD, &mut msg_vec)?;
+    decode_config_buf(msg_substring, base64::STANDARD, &mut encoded_msg)?;
 
-    Ok(msg_vec)
+    Ok(encoded_msg)
 }
 
 /// Take a signature key as a string and return the encoded bytes as a vector.
@@ -149,30 +129,27 @@ pub fn encode_sig(sig: &str) -> Result<Vec<u8>> {
         .context("Failed to retrieve captured substring key")?
         .as_str();
 
-    let mut sig_vec = vec![SIGNATURE_TYPE];
-    decode_config_buf(sig_substring, base64::STANDARD, &mut sig_vec)?;
+    let mut encoded_sig = SIGNATURE_TYPE.to_vec();
+    decode_config_buf(sig_substring, base64::STANDARD, &mut encoded_sig)?;
 
-    Ok(sig_vec)
+    Ok(encoded_sig)
 }
 
 /// Take a string value and return the encoded bytes as a vector.
 pub fn encode_string(string: &str) -> Result<Vec<u8>> {
-    let mut string_bytes = string.as_bytes().to_vec();
-    let mut string_vec = vec![STRING_TYPE];
-    string_vec.append(&mut string_bytes);
+    let encoded_string = [STRING_TYPE, string.as_bytes()].concat();
 
-    Ok(string_vec)
+    Ok(encoded_string)
 }
 
 /// Take a boolean value as a string and return the encoded bytes as a vector.
 pub fn encode_bool(boolean: bool) -> Result<Vec<u8>> {
-    let mut bool_vec = vec![BOOL_TYPE];
-    match boolean {
-        true => bool_vec.push(1),
-        false => bool_vec.push(0),
-    }
+    let bool_vec = match boolean {
+        true => [BOOL_TYPE, &[0x01]].concat(),
+        false => [BOOL_TYPE, &[0x00]].concat(),
+    };
 
-    Ok(bool_vec)
+    Ok(bool_vec.to_vec())
 }
 
 /// Take a JSON value, match on the value type and call the appropriate encoder.
@@ -188,8 +165,7 @@ pub fn convert(value: &Value) -> Result<ConvertedValue> {
         }
         Ok(ConvertedValue::VecVal(converted_arr))
     } else if value.is_null() {
-        let null_vec = vec![NULL_TYPE];
-        Ok(ConvertedValue::ByteVec(null_vec))
+        Ok(ConvertedValue::ByteVec(NULL_TYPE.to_vec()))
     } else if !value.is_array() && value.is_object() && !value.is_null() {
         let value_obj = value
             .as_object()
@@ -226,38 +202,33 @@ mod tests {
         convert, encode_bool, encode_feed, encode_msg, encode_sig, encode_string, get_feed_type,
         get_msg_type,
     };
-    use crate::{FeedType, MessageType};
-
+    use crate::{
+        BB_FEED_TYPE, BB_MSG_TYPE, CLASSIC_FEED_TYPE, CLASSIC_MSG_TYPE, GG_FEED_TYPE, GG_MSG_TYPE,
+    };
     use serde_json::json;
 
     #[test]
     fn get_feed_type_matches_bendy_butt() {
         let result = get_feed_type(&BB_FEED);
         assert!(result.is_ok());
-        let result_type = result.unwrap();
-        assert_eq!(result_type, FeedType::BendyButt);
-        let result_code = result_type as u8;
-        assert_eq!(result_code, 3);
+        let result_code = result.unwrap();
+        assert_eq!(result_code, BB_FEED_TYPE);
     }
 
     #[test]
     fn get_feed_type_matches_classic() {
         let result = get_feed_type(&CLASSIC_FEED);
         assert!(result.is_ok());
-        let result_type = result.unwrap();
-        assert_eq!(result_type, FeedType::Classic);
-        let result_code = result_type as u8;
-        assert_eq!(result_code, 0);
+        let result_code = result.unwrap();
+        assert_eq!(result_code, CLASSIC_FEED_TYPE);
     }
 
     #[test]
     fn get_feed_type_matches_gabby_grove() {
         let result = get_feed_type(&GG_FEED);
         assert!(result.is_ok());
-        let result_type = result.unwrap();
-        assert_eq!(result_type, FeedType::GabbyGrove);
-        let result_code = result_type as u8;
-        assert_eq!(result_code, 1);
+        let result_code = result.unwrap();
+        assert_eq!(result_code, GG_FEED_TYPE);
     }
 
     #[test]
@@ -270,30 +241,24 @@ mod tests {
     fn get_msg_type_matches_bendy_butt() {
         let result = get_msg_type(&BB_MSG);
         assert!(result.is_ok());
-        let result_type = result.unwrap();
-        assert_eq!(result_type, MessageType::BendyButt);
-        let result_code = result_type as u8;
-        assert_eq!(result_code, 14);
+        let result_code = result.unwrap();
+        assert_eq!(result_code, BB_MSG_TYPE);
     }
 
     #[test]
     fn get_msg_type_matches_classic() {
         let result = get_msg_type(&CLASSIC_MSG);
         assert!(result.is_ok());
-        let result_type = result.unwrap();
-        assert_eq!(result_type, MessageType::Classic);
-        let result_code = result_type as u8;
-        assert_eq!(result_code, 10);
+        let result_code = result.unwrap();
+        assert_eq!(result_code, CLASSIC_MSG_TYPE);
     }
 
     #[test]
     fn get_msg_type_matches_gabby_grove() {
         let result = get_msg_type(&GG_MSG);
         assert!(result.is_ok());
-        let result_type = result.unwrap();
-        assert_eq!(result_type, MessageType::GabbyGrove);
-        let result_code = result_type as u8;
-        assert_eq!(result_code, 11);
+        let result_code = result.unwrap();
+        assert_eq!(result_code, GG_MSG_TYPE);
     }
 
     #[test]
