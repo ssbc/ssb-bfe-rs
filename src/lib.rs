@@ -53,6 +53,12 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+/// Encoded value for box type.
+pub const BOX_TYPE: &[u8] = &[0x05];
+/// Encoded value for box types.
+pub const BOX_1_TYPE: &[u8] = &[0x05, 0x00];
+/// Encoded value for box2 types.
+pub const BOX_2_TYPE: &[u8] = &[0x05, 0x01];
 /// Encoded value for string types.
 pub const STRING_TYPE: &[u8] = &[0x06, 0x00];
 /// Encoded value for boolean types.
@@ -90,6 +96,21 @@ pub enum EncodedValue {
     Array(Vec<EncodedValue>),
 }
 
+/// Take a box key as a string and return the encoded bytes representing the box type.
+// Note: box refers to an SSB `private box` and not a Rust `Box` (pointer type)
+pub fn get_box_type(box_str: &str) -> Result<Vec<u8>> {
+    let box_type;
+    if box_str.ends_with(".box") {
+        box_type = BOX_1_TYPE
+    } else if box_str.ends_with(".box2") {
+        box_type = BOX_2_TYPE
+    } else {
+        return Err(anyhow!("The box type is unknown"));
+    };
+
+    Ok(box_type.to_vec())
+}
+
 /// Take a feed identity (key) as a string and return the encoded bytes representing the feed type.
 pub fn get_feed_type(feed: &str) -> Result<Vec<u8>> {
     let feed_type;
@@ -106,18 +127,6 @@ pub fn get_feed_type(feed: &str) -> Result<Vec<u8>> {
     Ok(feed_type.to_vec())
 }
 
-/// Take a feed identity (key) as a string and return the encoded bytes as a vector.
-pub fn encode_feed(feed: &str) -> Result<Vec<u8>> {
-    let mut encoded_feed = get_feed_type(feed)?;
-    let dot_index = feed
-        .rfind('.')
-        .context("Invalid feed string: no dot index was found")?;
-    // decode feed substring from base64 str to bytes and append to encoded_feed bytes
-    base64::decode_config_buf(&feed[1..dot_index], base64::STANDARD, &mut encoded_feed)?;
-
-    Ok(encoded_feed)
-}
-
 /// Take a message key as a string and return the encoded bytes representing the message type.
 pub fn get_msg_type(msg: &str) -> Result<Vec<u8>> {
     let msg_type;
@@ -132,6 +141,41 @@ pub fn get_msg_type(msg: &str) -> Result<Vec<u8>> {
     };
 
     Ok(msg_type.to_vec())
+}
+
+/// Take a boolean value as a string and return the encoded bytes as a vector.
+pub fn encode_bool(boolean: bool) -> Result<Vec<u8>> {
+    let bool_vec = match boolean {
+        true => [BOOL_TYPE, &[0x01]].concat(),
+        false => [BOOL_TYPE, &[0x00]].concat(),
+    };
+
+    Ok(bool_vec.to_vec())
+}
+
+/// Take a box key as a string and return the encoded bytes as a vector.
+// Note: box refers to an SSB `private box` and not a Rust `Box` (pointer type)
+pub fn encode_box(box_str: &str) -> Result<Vec<u8>> {
+    let mut encoded_box = get_box_type(box_str)?;
+    let dot_index = box_str
+        .rfind('.')
+        .context("Invalid box string: no dot index was found")?;
+    // decode box substring from base64 str to bytes and append to encoded_box bytes
+    base64::decode_config_buf(&box_str[0..dot_index], base64::STANDARD, &mut encoded_box)?;
+
+    Ok(encoded_box)
+}
+
+/// Take a feed identity (key) as a string and return the encoded bytes as a vector.
+pub fn encode_feed(feed: &str) -> Result<Vec<u8>> {
+    let mut encoded_feed = get_feed_type(feed)?;
+    let dot_index = feed
+        .rfind('.')
+        .context("Invalid feed string: no dot index was found")?;
+    // decode feed substring from base64 str to bytes and append to encoded_feed bytes
+    base64::decode_config_buf(&feed[1..dot_index], base64::STANDARD, &mut encoded_feed)?;
+
+    Ok(encoded_feed)
 }
 
 /// Take a message key as a string and return the encoded bytes as a vector.
@@ -163,16 +207,6 @@ pub fn encode_string(string: &str) -> Result<Vec<u8>> {
     let encoded_string = [STRING_TYPE, string.as_bytes()].concat();
 
     Ok(encoded_string)
-}
-
-/// Take a boolean value as a string and return the encoded bytes as a vector.
-pub fn encode_bool(boolean: bool) -> Result<Vec<u8>> {
-    let bool_vec = match boolean {
-        true => [BOOL_TYPE, &[0x01]].concat(),
-        false => [BOOL_TYPE, &[0x00]].concat(),
-    };
-
-    Ok(bool_vec.to_vec())
 }
 
 /// Take a JSON value, match on the value type(s) and call the appropriate encoder(s).
@@ -208,6 +242,8 @@ pub fn encode(value: &Value) -> Result<EncodedValue> {
             encoded_str = encode_msg(value_str)?
         } else if value_str.ends_with(".sig.ed25519") {
             encoded_str = encode_sig(value_str)?
+        } else if value_str.ends_with(".box2") || value_str.ends_with(".box") {
+            encoded_str = encode_box(value_str)?
         } else {
             encoded_str = encode_string(value_str)?
         }
@@ -222,8 +258,29 @@ pub fn encode(value: &Value) -> Result<EncodedValue> {
     }
 }
 
-/// Take a feed identity (key) as an encoded byte vector and return a string representing the feed
-/// type.
+/// Take a boolean key as an encoded byte vector and return a boolean value.
+pub fn decode_bool(boolean: Vec<u8>) -> bool {
+    boolean[2..] == [0x01]
+}
+
+/// Take a private box as an encoded byte vector and return a decoded string representation.
+pub fn decode_box(box_vec: Vec<u8>) -> Result<String> {
+    let box_extension;
+    if &box_vec[..2] == BOX_1_TYPE {
+        box_extension = ".box"
+    } else if &box_vec[..2] == BOX_2_TYPE {
+        box_extension = ".box2"
+    } else {
+        return Err(anyhow!("The box is of an unknown format"));
+    }
+
+    let b64_type = base64::encode(&box_vec[2..]);
+    let decoded_box = format!("{}{}", b64_type, box_extension.to_string());
+
+    Ok(decoded_box)
+}
+
+/// Take a feed identity (key) as an encoded byte vector and return a decoded string representation.
 pub fn decode_feed(feed: Vec<u8>) -> Result<String> {
     let feed_extension;
     if &feed[..2] == CLASSIC_FEED_TYPE {
@@ -243,7 +300,7 @@ pub fn decode_feed(feed: Vec<u8>) -> Result<String> {
     Ok(decoded_feed)
 }
 
-/// Take a message key as an encoded byte vector and return a string representing the message type.
+/// Take a message key as an encoded byte vector and return a decoded string representation.
 pub fn decode_msg(msg: Vec<u8>) -> Result<Option<String>> {
     if msg.len() == 2 {
         return Ok(None);
@@ -282,11 +339,6 @@ pub fn decode_string(string: Vec<u8>) -> Result<String> {
     Ok(decoded_string)
 }
 
-/// Take a boolean key as an encoded byte vector and return a boolean value.
-pub fn decode_bool(boolean: Vec<u8>) -> bool {
-    boolean[2..] == [0x01]
-}
-
 /// Take a BFE encoded value, match on the value type(s) and call the appropriate decoder(s).
 ///
 /// Returns the decoded value in the form of a `Result<Value>`.
@@ -317,6 +369,8 @@ pub fn decode(value: &EncodedValue) -> Result<Value> {
                 if let Some(val) = decode_msg(buf.to_vec())? {
                     decoded_buf = Some(val)
                 }
+            } else if &buf[..1] == BOX_TYPE {
+                decoded_buf = Some(decode_box(buf.to_vec())?)
             } else if &buf[..2] == SIGNATURE_TYPE {
                 decoded_buf = Some(decode_sig(buf.to_vec())?)
             } else {
@@ -341,14 +395,31 @@ pub fn decode(value: &EncodedValue) -> Result<Value> {
 mod tests {
     use crate::EncodedValue;
     use crate::{
-        decode, decode_bool, decode_feed, decode_msg, decode_sig, decode_string, encode,
-        encode_bool, encode_feed, encode_msg, encode_sig, encode_string, get_feed_type,
-        get_msg_type,
+        decode, decode_bool, decode_box, decode_feed, decode_msg, decode_sig, decode_string,
+        encode, encode_bool, encode_box, encode_feed, encode_msg, encode_sig, encode_string,
+        get_box_type, get_feed_type, get_msg_type,
     };
     use crate::{
-        BB_FEED_TYPE, BB_MSG_TYPE, CLASSIC_FEED_TYPE, CLASSIC_MSG_TYPE, GG_FEED_TYPE, GG_MSG_TYPE,
+        BB_FEED_TYPE, BB_MSG_TYPE, BOX_1_TYPE, BOX_2_TYPE, CLASSIC_FEED_TYPE, CLASSIC_MSG_TYPE,
+        GG_FEED_TYPE, GG_MSG_TYPE,
     };
     use serde_json::json;
+
+    #[test]
+    fn get_box_type_matches_box1() {
+        let result = get_box_type(BOX_1);
+        assert!(result.is_ok());
+        let result_code = result.unwrap();
+        assert_eq!(result_code, BOX_1_TYPE);
+    }
+
+    #[test]
+    fn get_box_type_matches_box2() {
+        let result = get_box_type(BOX_2);
+        assert!(result.is_ok());
+        let result_code = result.unwrap();
+        assert_eq!(result_code, BOX_2_TYPE);
+    }
 
     #[test]
     fn get_feed_type_matches_bendy_butt() {
@@ -411,6 +482,43 @@ mod tests {
     }
 
     #[test]
+    fn encode_and_decode_bool_works() {
+        let encoded = encode_bool(true);
+        assert!(encoded.is_ok());
+        let encoded_value = encoded.unwrap();
+        let expected = vec![6, 1, 1];
+        assert_eq!(expected, encoded_value);
+        let decoded = decode_bool(encoded_value);
+        assert_eq!(true, decoded);
+    }
+
+    #[test]
+    fn encode_and_decode_box_works() {
+        let encoded = encode_box(BOX_1);
+        assert!(encoded.is_ok());
+        let encoded_value = encoded.unwrap();
+        let expected = vec![5, 0];
+        assert_eq!(expected, &encoded_value[..2]);
+        let decoded = decode_box(encoded_value);
+        assert!(decoded.is_ok());
+        let decoded_value = decoded.unwrap();
+        assert_eq!(BOX_1, decoded_value);
+    }
+
+    #[test]
+    fn encode_and_decode_box2_works() {
+        let encoded = encode_box(BOX_2);
+        assert!(encoded.is_ok());
+        let encoded_value = encoded.unwrap();
+        let expected = vec![5, 1];
+        assert_eq!(expected, &encoded_value[..2]);
+        let decoded = decode_box(encoded_value);
+        assert!(decoded.is_ok());
+        let decoded_value = decoded.unwrap();
+        assert_eq!(BOX_2, decoded_value);
+    }
+
+    #[test]
     fn encode_and_decode_feed_works() {
         let encoded = encode_feed(BB_FEED);
         assert!(encoded.is_ok());
@@ -442,6 +550,23 @@ mod tests {
         assert!(decoded_option.is_some());
         let decoded_value = decoded_option.unwrap();
         assert_eq!(CLASSIC_MSG, decoded_value);
+    }
+
+    #[test]
+    fn encode_and_decode_object_works() {
+        let v = json!({
+            "feed": "@d/zDvFswFbQaYJc03i47C9CgDev+/A8QQSfG5l/SEfw=.ed25519",
+            "sig": "nkY4Wsn9feosxvX7bpLK7OxjdSrw6gSL8sun1n2TMLXKySYK9L5itVQnV2nQUctFsrUOa2istD2vDk1B0uAMBQ==.sig.ed25519",
+            "backups": true,
+            "recurse": [null, "thing", false]
+        });
+        let encoded = encode(&v);
+        assert!(encoded.is_ok());
+        let encoded_value = encoded.unwrap();
+        let decoded = decode(&encoded_value);
+        assert!(decoded.is_ok());
+        let decoded_value = decoded.unwrap();
+        assert_eq!(v, decoded_value);
     }
 
     #[test]
@@ -479,26 +604,15 @@ mod tests {
     }
 
     #[test]
-    fn encode_and_decode_bool_works() {
-        let encoded = encode_bool(true);
-        assert!(encoded.is_ok());
-        let encoded_value = encoded.unwrap();
-        let expected = vec![6, 1, 1];
-        assert_eq!(expected, encoded_value);
-        let decoded = decode_bool(encoded_value);
-        assert_eq!(true, decoded);
-    }
-
-    #[test]
-    fn encode_value_bool_works() {
-        let v = json!(true);
+    fn encode_value_array_works() {
+        let v = json!(["ichneumonid", "coleopteran"]);
         let result = encode(&v);
         assert!(result.is_ok());
     }
 
     #[test]
-    fn encode_value_array_works() {
-        let v = json!(["ichneumonid", "coleopteran"]);
+    fn encode_value_bool_works() {
+        let v = json!(true);
         let result = encode(&v);
         assert!(result.is_ok());
     }
@@ -519,23 +633,8 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn encode_and_decode_object_works() {
-        let v = json!({
-            "feed": "@d/zDvFswFbQaYJc03i47C9CgDev+/A8QQSfG5l/SEfw=.ed25519",
-            "sig": "nkY4Wsn9feosxvX7bpLK7OxjdSrw6gSL8sun1n2TMLXKySYK9L5itVQnV2nQUctFsrUOa2istD2vDk1B0uAMBQ==.sig.ed25519",
-            "backups": true,
-            "recurse": [null, "thing", false]
-        });
-        let encoded = encode(&v);
-        assert!(encoded.is_ok());
-        let encoded_value = encoded.unwrap();
-        let decoded = decode(&encoded_value);
-        assert!(decoded.is_ok());
-        let decoded_value = decoded.unwrap();
-        assert_eq!(v, decoded_value);
-    }
-
+    const BOX_1: &str = "siZEm1zFx1icq0SrEynGDpNRmJCXMxTB3iEteXFn+IhJH8WhMbT8tp9qOIaFkIYcdOyerSon6RK0l4RE1ZdDh/3lcGZSdP0Ljq59qsdqlf2ngwbIbV9AWdPRrPsoVZBV6RhI+YcVTloWWP5aauu1hZKjcm62ezLBTQ3EmFPYtDuwsOFkx9/7FP97ljhj67CwvlGzuiWp6FNICHbt5kOCxs9H0k6Tr8JJVdaJtJ2pqkX4p0ECMuEuYxCYbh3FpncCqlNZJXb0dj3iSsfsMNWTJLDqfkqJKH1jBVfxDL6+xAXBDS+E4F2hD4y9gRDZEej99uVBQWlbxr5eCRV+VbfBGYxwoAYtqux6rg3jBabImKKinBwHShEP5F/+wlb9IxQn4swyOgyv+UKx/jbx+91Ayso5bnNPZMpwRRX5p5DbpK1BnryeVJhktMgFqgni1g0lHyU8sQ2QzwZgXGw7dfYoamkqK4D24NOLnUoHuVuhd7Q5SxZWSAO6wpDa4nrODePoJdl328pbMwCoQlUNeHINmKxh/o/oCNbgXitn4oN3kSVEg/umdgwwI94gmZUjiYwP1v7HA7dI.box";
+    const BOX_2: &str = "WQyfhDDHQ1gH34uppHbj8SldRu8hD2764gQ6TAhaVp6R01EMBnJQj5ewD5F+UT5NwvV91uU8q5XCjuvcP4ihCJ0RtX8HjKyN+tDKP5gKB3UZo/eO/rP5CcPGoIG7pcLBsd3DQbZLfTnb/iqECEji9gclNcGENTS2u6aATwbQ4uQ7RzIAKKT2NfC2qk86p/gXC2owDFAazuPlQTT8DMNvO8G52gb48a75CGKsDAevrC//Bz38VFxwUiTKzRWaxCbTK9knj39u3qoCP9VLyyRqITgNwvlGLP7ndchTyBiO0TPNkb9PAOenw5WBjyWhA61hpG+VkKpkaysBVGjXYv8OpV1HGbs87TI79uT7JrNV4wEZiwqGknwmCi5B2gbd7tav8yDXsK5yQgDncHQjZotsBFX2adP7Jli9WmvV3xX5lL3kBNKV0ZiE/DZUgB2m1OXvCjNI4fuZhnpZpEQi9coO+icrirKiH/UA8TS9HI72cIbkEJVxOTnKnsgr3Qc/5HhtRS17a54ymVmBsnpP+KqqCqKLN50TInb7qoUlvQ2nw07xX3Ig9usLb8Ik8U8XMb6SLqACxlZN/qW4EJzxVetoIk84AU1yLInK6v9dzfsewRYBXW8+lYbyxVNuIIK4pKYsx2WbjuJyZHgjgbCdGf/kjqP5rDs4zwqj2lmkO70PoEUrcSi46J2hkqtcrd1yl+F3/BDwFlxAXH+x4+LhmT7g+BSgzRUbWvCyeB+HJaoao6g4K/Fs8HxnbVB1zW761OQJaQnV86ZThkvUjXh2SEBlBd+D94eUCqIJkjI7RLt+D/0gxg/D7u1Zq14UxRijZryB51An7GdXtEc2xhU+Bh/aPmKmMZ9D/ArdglSlnVUD8OIBVVw5jtooGlhxbOFHM4N5SoAO/yWPcbcuQz7t4SPij358rY574DLBGZEPCrS6KPpnrlqlnZK4f6/+9zv3hfzNTXVvJtxZL/rvmNvbgh7LpMnSqjnsXqm86a3GXeVWD83TdCnL1oPqEi/8RItTrjy01DmVhUoV6t12STP4mHb8RjR+/ks+7lowfV3HQ13n6if0g0/u+Bzv6XXOX6iePPOHA3lFv2MSPKf9JZ0uQiqajR03YkNE8YnSTYu0Io1cGPZ/lWBp2tyWtwFmGtqw/9+O165tJhrdU2EXJ4T/XP136WpLD2+vtYsx3Xr5lfeD12/g+I/6jwduqTuHpst2tqvcSWoZ4DAWcpcKJ1mUbJU3/mLAYGwWb3XuqMOgJOLoztAwd5xFzUZD1MnR/iyYoZ2weYTSOz3OKR3cJyCjxBhIGaX5xpAc61K1dXNfERBJr9TS0mL2578dd5AauE6Ksn6YlGxNJIVC3VpdAtRbVHNX1g==.box2";
     const BB_FEED: &str = "@6CAxOI3f+LUOVrbAl0IemqiS7ATpQvr9Mdw9LC4+Uv0=.bbfeed-v1";
     const CLASSIC_FEED: &str = "@d/zDvFswFbQaYJc03i47C9CgDev+/A8QQSfG5l/SEfw=.ed25519";
     const GG_FEED: &str = "@6CAxOI3f+LUOVrbAl0IemqiS7ATpQvr9Mdw9LC4+Uv0=.ggfeed-v1";
