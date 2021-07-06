@@ -2,7 +2,7 @@
 //!
 //! Binary Field Encodings (BFE) for Secure Scuttlebutt (SSB).
 //!
-//! Based on the JavaScript reference implementation: [ssb-bfe.js](https://github.com/ssb-ngi-pointer/ssb-bendy-butt/blob/master/ssb-bfe.js).
+//! Based on the JavaScript reference implementation: [ssb-bfe](https://github.com/ssb-ngi-pointer/ssb-bfe).
 //!
 //! While `encode()` and `decode()` are the two primary functions exposed by this crate, the
 //! various helper functions and values are also exported for public use.
@@ -11,15 +11,15 @@
 //!
 //! The encoder expects JSON input in the form of a [`serde_json::Value
 //! enum`](https://docs.serde.rs/serde_json/value/enum.Value.html). The encoded value is returned
-//! as an `EncodedValue` (a custom `enum` provided by this library).
+//! as an `BfeValue` (a custom `enum` provided by this library).
 //!
 //! ## Decode
 //!
-//! The decoder expects input in the form of an `EncodedValue` (a custom `enum` provided by this
+//! The decoder expects input in the form of an `BfeValue` (a custom `enum` provided by this
 //! library). The decoded value is returned as JSON in the form of a [`serde_json::Value enum`](https://docs.serde.rs/serde_json/value/enum.Value.html).
 //!
-//!`Deserialize` and `Serialize` traits have been derived for `EncodedValue`,
-//!meaning that encoded JSON objects can be parsed into the `EncodedValue`
+//!`Deserialize` and `Serialize` traits have been derived for `BfeValue`,
+//!meaning that encoded JSON objects can be parsed into the `BfeValue`
 //!type if required (for example, if the value is received as a byte slice of
 //!serialized JSON data). See the `serde` documentation on
 //![Parsing JSON as strongly typed data structures](https://docs.serde.rs/serde_json/index.html#parsing-json-as-strongly-typed-data-structures) for an example and further explanation.
@@ -86,14 +86,14 @@ pub const BB_MSG_TYPE: &[u8] = &[0x01, 0x04];
 
 /// Represents any valid encoded BFE value.
 #[derive(Debug, PartialEq, Deserialize, Serialize)]
-pub enum EncodedValue {
+pub enum BfeValue {
     /// Represents an encoded boolean, string, feed key, message key or signature key.
     Buffer(Vec<u8>),
     /// Represents an object of encoded BFE values.
     #[serde(with = "indexmap::serde_seq")]
-    Object(IndexMap<String, EncodedValue>),
+    Object(IndexMap<String, BfeValue>),
     /// Represents an array of encoded BFE values.
-    Array(Vec<EncodedValue>),
+    Array(Vec<BfeValue>),
 }
 
 /// Take a box key as a string and return the encoded bytes representing the box type.
@@ -211,8 +211,8 @@ pub fn encode_string(string: &str) -> Result<Vec<u8>> {
 
 /// Take a JSON value, match on the value type(s) and call the appropriate encoder(s).
 ///
-/// Returns the encoded value in the form of a `Result<EncodedValue>`.
-pub fn encode(value: &Value) -> Result<EncodedValue> {
+/// Returns the encoded value in the form of a `Result<BfeValue>`.
+pub fn encode(value: &Value) -> Result<BfeValue> {
     if value.is_array() {
         let value_arr = value.as_array().context("NoneError for `value.as_array`")?;
         let mut encoded_arr = Vec::new();
@@ -220,9 +220,9 @@ pub fn encode(value: &Value) -> Result<EncodedValue> {
             let encoded_item = encode(item)?;
             encoded_arr.push(encoded_item);
         }
-        Ok(EncodedValue::Array(encoded_arr))
+        Ok(BfeValue::Array(encoded_arr))
     } else if value.is_null() {
-        Ok(EncodedValue::Buffer(NULL_TYPE.to_vec()))
+        Ok(BfeValue::Buffer(NULL_TYPE.to_vec()))
     } else if !value.is_array() && value.is_object() && !value.is_null() {
         let value_obj = value
             .as_object()
@@ -232,7 +232,7 @@ pub fn encode(value: &Value) -> Result<EncodedValue> {
             let encoded_value = encode(v)?;
             encoded_obj.insert(k.to_string(), encoded_value);
         }
-        Ok(EncodedValue::Object(encoded_obj))
+        Ok(BfeValue::Object(encoded_obj))
     } else if value.is_string() {
         let value_str = value.as_str().context("NoneError for `value.as_str`")?;
         let encoded_str;
@@ -247,11 +247,11 @@ pub fn encode(value: &Value) -> Result<EncodedValue> {
         } else {
             encoded_str = encode_string(value_str)?
         }
-        Ok(EncodedValue::Buffer(encoded_str))
+        Ok(BfeValue::Buffer(encoded_str))
     } else if value.is_boolean() {
         let value_bool = value.as_bool().context("NoneError for `value.as_bool`")?;
         let encoded_bool = encode_bool(value_bool)?;
-        Ok(EncodedValue::Buffer(encoded_bool))
+        Ok(BfeValue::Buffer(encoded_bool))
     } else {
         // TODO: match on other types (float etc.)
         Err(anyhow!("Unknown value: no encoding performed"))
@@ -342,9 +342,9 @@ pub fn decode_string(string: Vec<u8>) -> Result<String> {
 /// Take a BFE encoded value, match on the value type(s) and call the appropriate decoder(s).
 ///
 /// Returns the decoded value in the form of a `Result<Value>`.
-pub fn decode(value: &EncodedValue) -> Result<Value> {
+pub fn decode(value: &BfeValue) -> Result<Value> {
     match value {
-        EncodedValue::Array(arr) => {
+        BfeValue::Array(arr) => {
             let mut decoded_arr = Vec::new();
             for item in arr {
                 let decoded_item = decode(item)?;
@@ -352,7 +352,7 @@ pub fn decode(value: &EncodedValue) -> Result<Value> {
             }
             Ok(json!(decoded_arr))
         }
-        EncodedValue::Buffer(buf) => {
+        BfeValue::Buffer(buf) => {
             let mut decoded_buf = None;
             if buf.len() < 2 {
                 return Err(anyhow!("Buffer length < 2"));
@@ -380,7 +380,7 @@ pub fn decode(value: &EncodedValue) -> Result<Value> {
             }
             Ok(json!(decoded_buf))
         }
-        EncodedValue::Object(obj) => {
+        BfeValue::Object(obj) => {
             let mut decoded_obj = IndexMap::new();
             for (k, v) in obj {
                 let decoded_value = decode(v)?;
@@ -393,7 +393,7 @@ pub fn decode(value: &EncodedValue) -> Result<Value> {
 
 #[cfg(test)]
 mod tests {
-    use crate::EncodedValue;
+    use crate::BfeValue;
     use crate::{
         decode, decode_bool, decode_box, decode_feed, decode_msg, decode_sig, decode_string,
         encode, encode_bool, encode_box, encode_feed, encode_msg, encode_sig, encode_string,
@@ -623,7 +623,7 @@ mod tests {
         let encoded = encode(&v);
         assert!(encoded.is_ok());
         let encoded_value = encoded.unwrap();
-        assert_eq!(EncodedValue::Buffer([6, 2].to_vec()), encoded_value);
+        assert_eq!(BfeValue::Buffer([6, 2].to_vec()), encoded_value);
     }
 
     #[test]

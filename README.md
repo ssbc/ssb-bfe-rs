@@ -2,20 +2,20 @@
 
 Binary Field Encodings (BFE) for Secure Scuttlebutt (SSB).
 
-Based on the JavaScript reference implementation: [ssb-bfe.js](https://github.com/ssb-ngi-pointer/ssb-bendy-butt/blob/master/ssb-bfe.js).
+Based on the JavaScript reference implementation: [ssb-bfe](https://github.com/ssb-ngi-pointer/ssb-bfe).
 
 While `encode()` and `decode()` are the two primary functions exposed by this crate, the various helper functions and values are also exported for public use.
 
 ## Encode
 
 The encoder expects JSON input in the form of a [`serde_json::Value enum`](https://docs.serde.rs/serde_json/value/enum.Value.html). The encoded value is returned
-as an `EncodedValue` (a custom `enum` provided by this library).
+as an `BfeValue` (a custom `enum` provided by this library).
 
 ## Decode
 
-The decoder expects input in the form of an `EncodedValue` (a custom `enum` provided by this library). The decoded value is returned as JSON in the form of a [`serde_json::Value enum`](https://docs.serde.rs/serde_json/value/enum.Value.html).
+The decoder expects input in the form of an `BfeValue` (a custom `enum` provided by this library). The decoded value is returned as JSON in the form of a [`serde_json::Value enum`](https://docs.serde.rs/serde_json/value/enum.Value.html).
 
-`Deserialize` and `Serialize` traits have been derived for `EncodedValue`, meaning that encoded JSON objects can be parsed into the `EncodedValue` type if required (for example, if the value is received as a byte slice of serialized JSON data). See the `serde` documentation on [Parsing JSON as strongly typed data structures](https://docs.serde.rs/serde_json/index.html#parsing-json-as-strongly-typed-data-structures) for an example and further explanation.
+`Deserialize` and `Serialize` traits have been derived for `BfeValue`, meaning that encoded JSON objects can be parsed into the `BfeValue` type if required (for example, if the value is received as a byte slice of serialized JSON data). See the `serde` documentation on [Parsing JSON as strongly typed data structures](https://docs.serde.rs/serde_json/index.html#parsing-json-as-strongly-typed-data-structures) for an example and further explanation.
 
 ## Example
 
