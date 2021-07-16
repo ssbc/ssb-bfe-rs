@@ -463,8 +463,8 @@ pub fn decode(value: &BfeValue) -> Result<Value> {
             } else if &buf[..2] == SIGNATURE_TF {
                 decoded_buf = Some(decode_sig(buf.to_vec())?)
             } else {
-                // no match: return the buffer value as-is
-                return Ok(json!(buf));
+                // no match: return the buffer value without decoding
+                return Ok(json!({ "Buffer": buf }));
             }
             Ok(json!(decoded_buf))
         }
@@ -736,6 +736,16 @@ mod tests {
         let v = json!("pyrophilous fungi");
         let result = encode(&v);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn decode_returns_unmatched_buffer() {
+        let buf = BfeValue::Buffer([7, 7, 7].to_vec());
+        let decoded = decode(&buf);
+        assert!(decoded.is_ok());
+        let json_buf = json!(buf);
+        let decoded_value = decoded.unwrap();
+        assert_eq!(json_buf, decoded_value);
     }
 
     const BLOB: &str = "&S7+CwHM6dZ9si5Vn4ftpk/l/ldbRMqzzJos+spZbWf4=.sha256";
