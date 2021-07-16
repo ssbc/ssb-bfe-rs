@@ -53,101 +53,154 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-/// Encoded value for box type.
-pub const BOX_TYPE: &[u8] = &[0x05];
-/// Encoded value for box types.
-pub const BOX_1_TYPE: &[u8] = &[0x05, 0x00];
-/// Encoded value for box2 types.
-pub const BOX_2_TYPE: &[u8] = &[0x05, 0x01];
-/// Encoded value for string types.
-pub const STRING_TYPE: &[u8] = &[0x06, 0x00];
-/// Encoded value for boolean types.
-pub const BOOL_TYPE: &[u8] = &[0x06, 0x01];
-/// Encoded value for null types.
-pub const NULL_TYPE: &[u8] = &[0x06, 0x02];
-/// Encoded value for signature types.
-pub const SIGNATURE_TYPE: &[u8] = &[0x04, 0x00];
-/// Encoded value for feed type.
-pub const FEED_TYPE: &[u8] = &[0x00];
-/// Encoded value for message type.
-pub const MSG_TYPE: &[u8] = &[0x01];
-/// Encoded value for classic (legacy) feed types.
-pub const CLASSIC_FEED_TYPE: &[u8] = &[0x00, 0x00];
-/// Encoded value for Gabby Grove (GG) feed types.
-pub const GG_FEED_TYPE: &[u8] = &[0x00, 0x01];
-/// Encoded value for Bendy Butt (BB) feed types.
-pub const BB_FEED_TYPE: &[u8] = &[0x00, 0x03];
-/// Encoded value for classic (legacy) message types.
-pub const CLASSIC_MSG_TYPE: &[u8] = &[0x01, 0x00];
-/// Encoded value for Gabby Grove (GG) message types.
-pub const GG_MSG_TYPE: &[u8] = &[0x01, 0x01];
-/// Encoded value for Bendy Butt (BB) message types.
-pub const BB_MSG_TYPE: &[u8] = &[0x01, 0x04];
+/* The naming convention used for constant types follows the TFD spec (also known as TFK):
+ * "T" - Type byte
+ * "F" - Format byte
+ * "D" - Data byte
+ */
 
-/// Represents any valid encoded BFE value.
+/// Encoded value for feed type.
+pub const FEED_T: &[u8] = &[0x00];
+/// Encoded value for classic (legacy) feed type-format.
+pub const CLASSIC_FEED_TF: &[u8] = &[0x00, 0x00];
+/// Encoded value for Gabby Grove (GG) feed type-format.
+pub const GABBYGR_FEED_TF: &[u8] = &[0x00, 0x01];
+/// Encoded value for Bendy Butt (BB) feed type-format.
+pub const BENDYBT_FEED_TF: &[u8] = &[0x00, 0x03];
+
+/// Encoded value for message type.
+pub const MSG_T: &[u8] = &[0x01];
+/// Encoded value for classic (legacy) message type-format.
+pub const CLASSIC_MSG_TF: &[u8] = &[0x01, 0x00];
+/// Encoded value for Gabby Grove (GG) message type-format.
+pub const GABBYGR_MSG_TF: &[u8] = &[0x01, 0x01];
+/// Encoded value for Bendy Butt (BB) message type-format.
+pub const BENDYBT_MSG_TF: &[u8] = &[0x01, 0x04];
+
+/// Encoded value for blob type.
+pub const BLOB_T: &[u8] = &[0x02];
+/// Encoded value for classic blob type-format.
+pub const CLASSIC_BLOB_TF: &[u8] = &[0x02, 0x00];
+
+/// Encoded value for signature type-format.
+pub const SIGNATURE_TF: &[u8] = &[0x04, 0x00];
+
+/// Encoded value for box type (encrypted data).
+pub const BOX_T: &[u8] = &[0x05];
+/// Encoded value for box1 type-format.
+pub const BOX1_TF: &[u8] = &[0x05, 0x00];
+/// Encoded value for box2 type-format.
+pub const BOX2_TF: &[u8] = &[0x05, 0x01];
+
+/// Encoded value for string type-format.
+pub const STRING_TF: &[u8] = &[0x06, 0x00];
+/// Encoded value for boolean type-format.
+pub const BOOL_TF: &[u8] = &[0x06, 0x01];
+/// Encoded value for boolean true value.
+pub const BOOL_TRUE: &[u8] = &[0x01];
+/// Encoded value for boolean false value.
+pub const BOOL_FALSE: &[u8] = &[0x00];
+/// Encoded value for nil type-format.
+pub const NIL_TF: &[u8] = &[0x06, 0x02];
+/// Encoded value for nil type-format-data.
+pub const NIL_TFD: &[u8] = NIL_TF;
+
+/// Represents any valid BFE return value, including values for types which are encoded and those
+/// which are not (ie. integers and floats).
 #[derive(Debug, PartialEq, Deserialize, Serialize)]
 pub enum BfeValue {
+    /// Represents an array of encoded BFE values.
+    Array(Vec<BfeValue>),
     /// Represents an encoded boolean, string, feed key, message key or signature key.
     Buffer(Vec<u8>),
+    /// Represents an unencoded, floating point.
+    Float(f64),
     /// Represents an object of encoded BFE values.
     #[serde(with = "indexmap::serde_seq")]
     Object(IndexMap<String, BfeValue>),
-    /// Represents an array of encoded BFE values.
-    Array(Vec<BfeValue>),
+    /// Represents an unencoded, signed integer.
+    SignedInteger(i64),
+    /// Represents an unencoded, unsigned integer.
+    UnsignedInteger(u64),
 }
 
-/// Take a box key as a string and return the encoded bytes representing the box type.
-// Note: box refers to an SSB `private box` and not a Rust `Box` (pointer type)
-pub fn get_box_type(box_str: &str) -> Result<Vec<u8>> {
-    let box_type;
-    if box_str.ends_with(".box") {
-        box_type = BOX_1_TYPE
-    } else if box_str.ends_with(".box2") {
-        box_type = BOX_2_TYPE
+/// Take a blob ID as a string and return the encoded bytes representing the blob type-format.
+pub fn get_blob_type(blob_id: &str) -> Result<Vec<u8>> {
+    let blob_type;
+    if blob_id.ends_with(".sha256") {
+        blob_type = CLASSIC_BLOB_TF
     } else {
-        return Err(anyhow!("The box type is unknown"));
+        return Err(anyhow!("Unknown blob ID: {}", blob_id));
+    };
+
+    Ok(blob_type.to_vec())
+}
+
+/// Take a box as a string and return the encoded bytes representing the box type-format.
+// Note: box refers to an SSB `private box` and not a Rust `Box` (pointer type)
+pub fn get_box_type(boxed_str: &str) -> Result<Vec<u8>> {
+    let box_type;
+    if boxed_str.ends_with(".box") {
+        box_type = BOX1_TF
+    } else if boxed_str.ends_with(".box2") {
+        box_type = BOX2_TF
+    } else {
+        return Err(anyhow!("Unknown boxed string: {}", boxed_str));
     };
 
     Ok(box_type.to_vec())
 }
 
-/// Take a feed identity (key) as a string and return the encoded bytes representing the feed type.
-pub fn get_feed_type(feed: &str) -> Result<Vec<u8>> {
+/// Take a feed ID (key) as a string and return the encoded bytes representing the feed type-format.
+pub fn get_feed_type(feed_id: &str) -> Result<Vec<u8>> {
     let feed_type;
-    if feed.ends_with(".ed25519") {
-        feed_type = CLASSIC_FEED_TYPE
-    } else if feed.ends_with(".bbfeed-v1") {
-        feed_type = BB_FEED_TYPE
-    } else if feed.ends_with(".ggfeed-v1") {
-        feed_type = GG_FEED_TYPE
+    if feed_id.ends_with(".ed25519") {
+        feed_type = CLASSIC_FEED_TF
+    } else if feed_id.ends_with(".bbfeed-v1") {
+        feed_type = BENDYBT_FEED_TF
+    } else if feed_id.ends_with(".ggfeed-v1") {
+        feed_type = GABBYGR_FEED_TF
     } else {
-        return Err(anyhow!("The feed type is of an unknown format"));
+        return Err(anyhow!("Unknown feed format: {}", feed_id));
     };
 
     Ok(feed_type.to_vec())
 }
 
-/// Take a message key as a string and return the encoded bytes representing the message type.
-pub fn get_msg_type(msg: &str) -> Result<Vec<u8>> {
+/// Take a message ID as a string and return the encoded bytes representing the message type-format.
+pub fn get_msg_type(msg_id: &str) -> Result<Vec<u8>> {
     let msg_type;
-    if msg.ends_with(".sha256") {
-        msg_type = CLASSIC_MSG_TYPE
-    } else if msg.ends_with(".bbmsg-v1") {
-        msg_type = BB_MSG_TYPE
-    } else if msg.ends_with(".ggmsg-v1") {
-        msg_type = GG_MSG_TYPE
+    if msg_id.ends_with(".sha256") {
+        msg_type = CLASSIC_MSG_TF
+    } else if msg_id.ends_with(".bbmsg-v1") {
+        msg_type = BENDYBT_MSG_TF
+    } else if msg_id.ends_with(".ggmsg-v1") {
+        msg_type = GABBYGR_MSG_TF
     } else {
-        return Err(anyhow!("The message type is unknown"));
+        return Err(anyhow!("Unknown message ID: {}", msg_id));
     };
 
     Ok(msg_type.to_vec())
 }
 
+/// Take a blob ID as a string and return the encoded bytes as a vector.
+pub fn encode_blob(blob_id: &str) -> Result<Vec<u8>> {
+    let mut encoded_blob = get_blob_type(blob_id)?;
+    let dot_index = blob_id
+        .rfind('.')
+        .with_context(|| format!("Invalid blob ID; no dot index was found: {}", blob_id))?;
+    let base64_str = &blob_id[1..dot_index];
+    // decode blob substring from base64 (to bytes) and append to encoded_blob bytes
+    base64::decode_config_buf(base64_str, base64::STANDARD, &mut encoded_blob)?;
+
+    Ok(encoded_blob)
+}
+
 /// Take a boolean value as a string and return the encoded bytes as a vector.
 pub fn encode_bool(boolean: bool) -> Result<Vec<u8>> {
     let bool_vec = match boolean {
-        true => [BOOL_TYPE, &[0x01]].concat(),
-        false => [BOOL_TYPE, &[0x00]].concat(),
+        true => [BOOL_TF, BOOL_TRUE].concat(),
+        false => [BOOL_TF, BOOL_FALSE].concat(),
     };
 
     Ok(bool_vec.to_vec())
@@ -160,42 +213,48 @@ pub fn encode_box(box_str: &str) -> Result<Vec<u8>> {
     let dot_index = box_str
         .rfind('.')
         .context("Invalid box string: no dot index was found")?;
-    // decode box substring from base64 str to bytes and append to encoded_box bytes
-    base64::decode_config_buf(&box_str[0..dot_index], base64::STANDARD, &mut encoded_box)?;
+    let base64_str = &box_str[0..dot_index];
+    // decode box substring from base64 (to bytes) and append to encoded_box bytes
+    base64::decode_config_buf(base64_str, base64::STANDARD, &mut encoded_box)?;
 
     Ok(encoded_box)
 }
 
-/// Take a feed identity (key) as a string and return the encoded bytes as a vector.
+/// Take a feed ID (key) as a string and return the encoded bytes as a vector.
 pub fn encode_feed(feed: &str) -> Result<Vec<u8>> {
     let mut encoded_feed = get_feed_type(feed)?;
     let dot_index = feed
         .rfind('.')
-        .context("Invalid feed string: no dot index was found")?;
-    // decode feed substring from base64 str to bytes and append to encoded_feed bytes
-    base64::decode_config_buf(&feed[1..dot_index], base64::STANDARD, &mut encoded_feed)?;
+        .with_context(|| format!("Invalid feed string; no dot index was found: {}", feed))?;
+    let base64_str = &feed[1..dot_index];
+    // decode feed substring from base64 (to bytes) and append to encoded_feed bytes
+    base64::decode_config_buf(base64_str, base64::STANDARD, &mut encoded_feed)?;
 
     Ok(encoded_feed)
 }
 
-/// Take a message key as a string and return the encoded bytes as a vector.
+/// Take a message ID as a string and return the encoded bytes as a vector.
 pub fn encode_msg(msg: &str) -> Result<Vec<u8>> {
     let mut encoded_msg = get_msg_type(msg)?;
     let dot_index = msg
         .rfind('.')
-        .context("Invalid message string: no dot index was found")?;
+        .with_context(|| format!("Invalid message string; no dot index was found: {}", msg))?;
+    let base64_str = &msg[1..dot_index];
     // decode msg substring from base64 str to bytes and append to encoded_msg bytes
-    base64::decode_config_buf(&msg[1..dot_index], base64::STANDARD, &mut encoded_msg)?;
+    base64::decode_config_buf(base64_str, base64::STANDARD, &mut encoded_msg)?;
 
     Ok(encoded_msg)
 }
 
-/// Take a signature key as a string and return the encoded bytes as a vector.
+/// Take a signature as a string and return the encoded bytes as a vector.
 pub fn encode_sig(sig: &str) -> Result<Vec<u8>> {
-    let mut encoded_sig = SIGNATURE_TYPE.to_vec();
-    let sig_substring = sig
-        .strip_suffix(".sig.ed25519")
-        .context("Signature does not have a valid `.sig.ed25519` suffix")?;
+    let mut encoded_sig = SIGNATURE_TF.to_vec();
+    let sig_substring = sig.strip_suffix(".sig.ed25519").with_context(|| {
+        format!(
+            "Signature does not have a valid `.sig.ed25519` suffix: {}",
+            sig,
+        )
+    })?;
     // decode sig substring from base64 str to bytes and append to encoded_sig bytes
     base64::decode_config_buf(sig_substring, base64::STANDARD, &mut encoded_sig)?;
 
@@ -204,7 +263,7 @@ pub fn encode_sig(sig: &str) -> Result<Vec<u8>> {
 
 /// Take a string value and return the encoded bytes as a vector.
 pub fn encode_string(string: &str) -> Result<Vec<u8>> {
-    let encoded_string = [STRING_TYPE, string.as_bytes()].concat();
+    let encoded_string = [STRING_TF, string.as_bytes()].concat();
 
     Ok(encoded_string)
 }
@@ -222,7 +281,7 @@ pub fn encode(value: &Value) -> Result<BfeValue> {
         }
         Ok(BfeValue::Array(encoded_arr))
     } else if value.is_null() {
-        Ok(BfeValue::Buffer(NULL_TYPE.to_vec()))
+        Ok(BfeValue::Buffer(NIL_TFD.to_vec()))
     } else if !value.is_array() && value.is_object() && !value.is_null() {
         let value_obj = value
             .as_object()
@@ -240,6 +299,8 @@ pub fn encode(value: &Value) -> Result<BfeValue> {
             encoded_str = encode_feed(value_str)?
         } else if value_str.starts_with('%') {
             encoded_str = encode_msg(value_str)?
+        } else if value_str.starts_with('&') {
+            encoded_str = encode_blob(value_str)?
         } else if value_str.ends_with(".sig.ed25519") {
             encoded_str = encode_sig(value_str)?
         } else if value_str.ends_with(".box2") || value_str.ends_with(".box") {
@@ -252,10 +313,33 @@ pub fn encode(value: &Value) -> Result<BfeValue> {
         let value_bool = value.as_bool().context("NoneError for `value.as_bool`")?;
         let encoded_bool = encode_bool(value_bool)?;
         Ok(BfeValue::Buffer(encoded_bool))
+    } else if value.is_i64() {
+        let int = value.as_i64().context("NoneError for `value.as_i64`")?;
+        Ok(BfeValue::SignedInteger(int))
+    } else if value.is_u64() {
+        let int = value.as_u64().context("NoneError for `value.as_u64`")?;
+        Ok(BfeValue::UnsignedInteger(int))
+    } else if value.is_f64() {
+        let float = value.as_f64().context("NoneError for `value.as_f64`")?;
+        Ok(BfeValue::Float(float))
     } else {
-        // TODO: match on other types (float etc.)
-        Err(anyhow!("Unknown value: no encoding performed"))
+        Err(anyhow!("Not encoding unknown value: {}", value))
     }
+}
+
+/// Take a blob ID as an encoded byte vector and return a decoded string representation.
+pub fn decode_blob(blob_id: Vec<u8>) -> Result<String> {
+    let blob_extension;
+    if &blob_id[..2] == CLASSIC_BLOB_TF {
+        blob_extension = ".sha256"
+    } else {
+        return Err(anyhow!("Unknown blob ID: {:?}", blob_id));
+    }
+
+    let b64_type = base64::encode(&blob_id[2..]);
+    let decoded_blob_id = format!("&{}{}", b64_type, blob_extension.to_string());
+
+    Ok(decoded_blob_id)
 }
 
 /// Take a boolean key as an encoded byte vector and return a boolean value.
@@ -266,12 +350,12 @@ pub fn decode_bool(boolean: Vec<u8>) -> bool {
 /// Take a private box as an encoded byte vector and return a decoded string representation.
 pub fn decode_box(box_vec: Vec<u8>) -> Result<String> {
     let box_extension;
-    if &box_vec[..2] == BOX_1_TYPE {
+    if &box_vec[..2] == BOX1_TF {
         box_extension = ".box"
-    } else if &box_vec[..2] == BOX_2_TYPE {
+    } else if &box_vec[..2] == BOX2_TF {
         box_extension = ".box2"
     } else {
-        return Err(anyhow!("The box is of an unknown format"));
+        return Err(anyhow!("Unknown box: {:?}", box_vec));
     }
 
     let b64_type = base64::encode(&box_vec[2..]);
@@ -280,49 +364,49 @@ pub fn decode_box(box_vec: Vec<u8>) -> Result<String> {
     Ok(decoded_box)
 }
 
-/// Take a feed identity (key) as an encoded byte vector and return a decoded string representation.
-pub fn decode_feed(feed: Vec<u8>) -> Result<String> {
+/// Take a feed ID (key) as an encoded byte vector and return a decoded string representation.
+pub fn decode_feed(feed_id: Vec<u8>) -> Result<String> {
     let feed_extension;
-    if &feed[..2] == CLASSIC_FEED_TYPE {
+    if &feed_id[..2] == CLASSIC_FEED_TF {
         feed_extension = ".ed25519"
-    } else if &feed[..2] == BB_FEED_TYPE {
+    } else if &feed_id[..2] == BENDYBT_FEED_TF {
         feed_extension = ".bbfeed-v1"
-    } else if &feed[..2] == GG_FEED_TYPE {
+    } else if &feed_id[..2] == GABBYGR_FEED_TF {
         feed_extension = ".ggfeed-v1"
     } else {
-        return Err(anyhow!("The feed is of an unknown format"));
+        return Err(anyhow!("Unknown feed ID: {:?}", feed_id));
     }
 
     // encode the last two bytes of the feed identity as base64
-    let b64_type = base64::encode(&feed[2..]);
-    let decoded_feed = format!("@{}{}", b64_type, feed_extension.to_string());
+    let b64_type = base64::encode(&feed_id[2..]);
+    let decoded_feed_id = format!("@{}{}", b64_type, feed_extension.to_string());
 
-    Ok(decoded_feed)
+    Ok(decoded_feed_id)
 }
 
-/// Take a message key as an encoded byte vector and return a decoded string representation.
-pub fn decode_msg(msg: Vec<u8>) -> Result<Option<String>> {
-    if msg.len() == 2 {
+/// Take a message ID as an encoded byte vector and return a decoded string representation.
+pub fn decode_msg(msg_id: Vec<u8>) -> Result<Option<String>> {
+    if msg_id.len() == 2 {
         return Ok(None);
     }
     let msg_extension;
-    if &msg[..2] == CLASSIC_MSG_TYPE {
+    if &msg_id[..2] == CLASSIC_MSG_TF {
         msg_extension = ".sha256"
-    } else if &msg[..2] == BB_MSG_TYPE {
+    } else if &msg_id[..2] == BENDYBT_MSG_TF {
         msg_extension = ".bbmsg-v1"
-    } else if &msg[..2] == GG_MSG_TYPE {
+    } else if &msg_id[..2] == GABBYGR_MSG_TF {
         msg_extension = ".ggmsg-v1"
     } else {
-        return Err(anyhow!("The message is of an unknown format"));
+        return Err(anyhow!("Unknown message ID: {:?}", msg_id));
     }
 
-    let b64_type = base64::encode(&msg[2..]);
-    let decoded_feed = format!("%{}{}", b64_type, msg_extension.to_string());
+    let b64_type = base64::encode(&msg_id[2..]);
+    let decoded_msg_id = format!("%{}{}", b64_type, msg_extension.to_string());
 
-    Ok(Some(decoded_feed))
+    Ok(Some(decoded_msg_id))
 }
 
-/// Take a signature key as an encoded byte vector and return a string.
+/// Take a signature as an encoded byte vector and return a string.
 pub fn decode_sig(sig: Vec<u8>) -> Result<String> {
     let b64_type = base64::encode(&sig[2..]);
     let decoded_sig = format!("{}.sig.ed25519", b64_type);
@@ -333,13 +417,13 @@ pub fn decode_sig(sig: Vec<u8>) -> Result<String> {
 /// Take a string as an encoded byte vector and return a string.
 pub fn decode_string(string: Vec<u8>) -> Result<String> {
     let decoded_string = str::from_utf8(&string[2..])
-        .context("The string bytes are not valid UTF-8")?
+        .with_context(|| format!("The string bytes are not valid UTF-8: {:?}", string))?
         .to_owned();
 
     Ok(decoded_string)
 }
 
-/// Take a BFE encoded value, match on the value type(s) and call the appropriate decoder(s).
+/// Take a BFE value, match on the value type(s) and call the appropriate decoder(s).
 ///
 /// Returns the decoded value in the form of a `Result<Value>`.
 pub fn decode(value: &BfeValue) -> Result<Value> {
@@ -355,27 +439,32 @@ pub fn decode(value: &BfeValue) -> Result<Value> {
         BfeValue::Buffer(buf) => {
             let mut decoded_buf = None;
             if buf.len() < 2 {
-                return Err(anyhow!("Buffer length < 2"));
-            } else if &buf[..2] == STRING_TYPE {
+                return Err(anyhow!(
+                    "Buffer is missing first two type&format fields: {:?}",
+                    buf
+                ));
+            } else if &buf[..2] == STRING_TF {
                 decoded_buf = Some(decode_string(buf.to_vec())?)
-            } else if &buf[..2] == BOOL_TYPE {
+            } else if &buf[..2] == BOOL_TF {
                 return Ok(json!(decode_bool(buf.to_vec())));
-            } else if &buf[..2] == NULL_TYPE {
+            } else if &buf[..2] == NIL_TF {
                 decoded_buf = None
-            } else if &buf[..1] == FEED_TYPE {
+            } else if &buf[..1] == FEED_T {
                 decoded_buf = Some(decode_feed(buf.to_vec())?)
-            } else if &buf[..1] == MSG_TYPE {
+            } else if &buf[..1] == MSG_T {
                 // ignore the None return type (msg.len() == 2)
                 if let Some(val) = decode_msg(buf.to_vec())? {
                     decoded_buf = Some(val)
                 }
-            } else if &buf[..1] == BOX_TYPE {
+            } else if &buf[..1] == BLOB_T {
+                decoded_buf = Some(decode_blob(buf.to_vec())?)
+            } else if &buf[..1] == BOX_T {
                 decoded_buf = Some(decode_box(buf.to_vec())?)
-            } else if &buf[..2] == SIGNATURE_TYPE {
+            } else if &buf[..2] == SIGNATURE_TF {
                 decoded_buf = Some(decode_sig(buf.to_vec())?)
             } else {
-                let buffer_str =
-                    str::from_utf8(buf).context("The string bytes are not valid UTF-8")?;
+                let buffer_str = str::from_utf8(buf)
+                    .with_context(|| format!("The string bytes are not valid UTF-8: {:?}", buf))?;
                 decoded_buf = Some(base64::encode(buffer_str))
             }
             Ok(json!(decoded_buf))
@@ -388,6 +477,9 @@ pub fn decode(value: &BfeValue) -> Result<Value> {
             }
             Ok(json!(decoded_obj))
         }
+        BfeValue::Float(float) => Ok(json!(float)),
+        BfeValue::SignedInteger(int) => Ok(json!(int)),
+        BfeValue::UnsignedInteger(int) => Ok(json!(int)),
     }
 }
 
@@ -400,8 +492,8 @@ mod tests {
         get_box_type, get_feed_type, get_msg_type,
     };
     use crate::{
-        BB_FEED_TYPE, BB_MSG_TYPE, BOX_1_TYPE, BOX_2_TYPE, CLASSIC_FEED_TYPE, CLASSIC_MSG_TYPE,
-        GG_FEED_TYPE, GG_MSG_TYPE,
+        BENDYBT_FEED_TF, BENDYBT_MSG_TF, BOX1_TF, BOX2_TF, CLASSIC_FEED_TF, CLASSIC_MSG_TF,
+        GABBYGR_FEED_TF, GABBYGR_MSG_TF,
     };
     use serde_json::json;
 
@@ -410,7 +502,7 @@ mod tests {
         let result = get_box_type(BOX_1);
         assert!(result.is_ok());
         let result_code = result.unwrap();
-        assert_eq!(result_code, BOX_1_TYPE);
+        assert_eq!(result_code, BOX1_TF);
     }
 
     #[test]
@@ -418,7 +510,7 @@ mod tests {
         let result = get_box_type(BOX_2);
         assert!(result.is_ok());
         let result_code = result.unwrap();
-        assert_eq!(result_code, BOX_2_TYPE);
+        assert_eq!(result_code, BOX2_TF);
     }
 
     #[test]
@@ -426,7 +518,7 @@ mod tests {
         let result = get_feed_type(BB_FEED);
         assert!(result.is_ok());
         let result_code = result.unwrap();
-        assert_eq!(result_code, BB_FEED_TYPE);
+        assert_eq!(result_code, BENDYBT_FEED_TF);
     }
 
     #[test]
@@ -434,7 +526,7 @@ mod tests {
         let result = get_feed_type(CLASSIC_FEED);
         assert!(result.is_ok());
         let result_code = result.unwrap();
-        assert_eq!(result_code, CLASSIC_FEED_TYPE);
+        assert_eq!(result_code, CLASSIC_FEED_TF);
     }
 
     #[test]
@@ -442,7 +534,7 @@ mod tests {
         let result = get_feed_type(GG_FEED);
         assert!(result.is_ok());
         let result_code = result.unwrap();
-        assert_eq!(result_code, GG_FEED_TYPE);
+        assert_eq!(result_code, GABBYGR_FEED_TF);
     }
 
     #[test]
@@ -456,7 +548,7 @@ mod tests {
         let result = get_msg_type(BB_MSG);
         assert!(result.is_ok());
         let result_code = result.unwrap();
-        assert_eq!(result_code, BB_MSG_TYPE);
+        assert_eq!(result_code, BENDYBT_MSG_TF);
     }
 
     #[test]
@@ -464,7 +556,7 @@ mod tests {
         let result = get_msg_type(CLASSIC_MSG);
         assert!(result.is_ok());
         let result_code = result.unwrap();
-        assert_eq!(result_code, CLASSIC_MSG_TYPE);
+        assert_eq!(result_code, CLASSIC_MSG_TF);
     }
 
     #[test]
@@ -472,7 +564,7 @@ mod tests {
         let result = get_msg_type(GG_MSG);
         assert!(result.is_ok());
         let result_code = result.unwrap();
-        assert_eq!(result_code, GG_MSG_TYPE);
+        assert_eq!(result_code, GABBYGR_MSG_TF);
     }
 
     #[test]
