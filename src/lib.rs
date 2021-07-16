@@ -189,8 +189,9 @@ pub fn encode_blob(blob_id: &str) -> Result<Vec<u8>> {
     let dot_index = blob_id
         .rfind('.')
         .with_context(|| format!("Invalid blob ID; no dot index was found: {}", blob_id))?;
-    // decode blob substring from base64 str to bytes and append to encoded_blob bytes
-    base64::decode_config_buf(&blob_id[1..dot_index], base64::STANDARD, &mut encoded_blob)?;
+    let base64_str = &blob_id[1..dot_index];
+    // decode blob substring from base64 (to bytes) and append to encoded_blob bytes
+    base64::decode_config_buf(base64_str, base64::STANDARD, &mut encoded_blob)?;
 
     Ok(encoded_blob)
 }
@@ -212,8 +213,9 @@ pub fn encode_box(box_str: &str) -> Result<Vec<u8>> {
     let dot_index = box_str
         .rfind('.')
         .context("Invalid box string: no dot index was found")?;
-    // decode box substring from base64 str to bytes and append to encoded_box bytes
-    base64::decode_config_buf(&box_str[0..dot_index], base64::STANDARD, &mut encoded_box)?;
+    let base64_str = &box_str[0..dot_index];
+    // decode box substring from base64 (to bytes) and append to encoded_box bytes
+    base64::decode_config_buf(base64_str, base64::STANDARD, &mut encoded_box)?;
 
     Ok(encoded_box)
 }
