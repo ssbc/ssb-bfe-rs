@@ -50,8 +50,6 @@ use std::str;
 
 use anyhow::{anyhow, Context, Result};
 use indexmap::IndexMap;
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 
 /* The naming convention used for constant types follows the TFD spec (also known as TFK):
  * "T" - Type byte
@@ -105,9 +103,23 @@ pub const NIL_TF: &[u8] = &[0x06, 0x02];
 /// Encoded value for nil type-format-data.
 pub const NIL_TFD: &[u8] = NIL_TF;
 
+/// Represents an unencoded value.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Value {
+    Null,
+    Array(Vec<Value>),
+    Bool(bool),
+    Buf(Vec<u8>),
+    Float(f64),
+    Object(IndexMap<String, Value>),
+    SignedInteger(i64),
+    String(String),
+    UnsignedInteger(u64),
+}
+
 /// Represents any valid BFE return value, including values for types which are encoded and those
 /// which are not (ie. integers and floats).
-#[derive(Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, PartialEq)]
 pub enum BfeValue {
     /// Represents an array of encoded BFE values.
     Array(Vec<BfeValue>),
@@ -116,7 +128,6 @@ pub enum BfeValue {
     /// Represents an unencoded, floating point.
     Float(f64),
     /// Represents an object of encoded BFE values.
-    #[serde(with = "indexmap::serde_seq")]
     Object(IndexMap<String, BfeValue>),
     /// Represents an unencoded, signed integer.
     SignedInteger(i64),
@@ -268,62 +279,56 @@ pub fn encode_string(string: &str) -> Result<Vec<u8>> {
     Ok(encoded_string)
 }
 
-/// Take a JSON value, match on the value type(s) and call the appropriate encoder(s).
+/// Take a value, match on the type(s) and call the appropriate encoder(s). Not that this does
+/// _not_ take a JSON value but, rather, a custom `Value` type defined by this library.
 ///
 /// Returns the encoded value in the form of a `Result<BfeValue>`.
-pub fn encode(value: &Value) -> Result<BfeValue> {
-    if value.is_array() {
-        let value_arr = value.as_array().context("NoneError for `value.as_array`")?;
-        let mut encoded_arr = Vec::new();
-        for item in value_arr {
-            let encoded_item = encode(item)?;
-            encoded_arr.push(encoded_item);
-        }
-        Ok(BfeValue::Array(encoded_arr))
-    } else if value.is_null() {
-        Ok(BfeValue::Buffer(NIL_TFD.to_vec()))
-    } else if !value.is_array() && value.is_object() && !value.is_null() {
-        let value_obj = value
-            .as_object()
-            .context("NoneError for `value.as_object`")?;
-        let mut encoded_obj = IndexMap::new();
-        for (k, v) in value_obj {
-            let encoded_value = encode(v)?;
-            encoded_obj.insert(k.to_string(), encoded_value);
-        }
-        Ok(BfeValue::Object(encoded_obj))
-    } else if value.is_string() {
-        let value_str = value.as_str().context("NoneError for `value.as_str`")?;
-        let encoded_str;
-        if value_str.starts_with('@') {
-            encoded_str = encode_feed(value_str)?
-        } else if value_str.starts_with('%') {
-            encoded_str = encode_msg(value_str)?
-        } else if value_str.starts_with('&') {
-            encoded_str = encode_blob(value_str)?
-        } else if value_str.ends_with(".sig.ed25519") {
-            encoded_str = encode_sig(value_str)?
-        } else if value_str.ends_with(".box2") || value_str.ends_with(".box") {
-            encoded_str = encode_box(value_str)?
-        } else {
-            encoded_str = encode_string(value_str)?
-        }
-        Ok(BfeValue::Buffer(encoded_str))
-    } else if value.is_boolean() {
-        let value_bool = value.as_bool().context("NoneError for `value.as_bool`")?;
-        let encoded_bool = encode_bool(value_bool)?;
-        Ok(BfeValue::Buffer(encoded_bool))
-    } else if value.is_i64() {
-        let int = value.as_i64().context("NoneError for `value.as_i64`")?;
-        Ok(BfeValue::SignedInteger(int))
-    } else if value.is_u64() {
-        let int = value.as_u64().context("NoneError for `value.as_u64`")?;
-        Ok(BfeValue::UnsignedInteger(int))
-    } else if value.is_f64() {
-        let float = value.as_f64().context("NoneError for `value.as_f64`")?;
-        Ok(BfeValue::Float(float))
-    } else {
-        Err(anyhow!("Not encoding unknown value: {}", value))
+pub fn encode(value: Option<Value>) -> Result<BfeValue> {
+    match value {
+        Some(val) => match val {
+            Value::Array(v) => {
+                let mut encoded_arr = Vec::new();
+                for item in v {
+                    let encoded_item = encode(Some(item))?;
+                    encoded_arr.push(encoded_item);
+                }
+                Ok(BfeValue::Array(encoded_arr))
+            }
+            Value::Object(v) => {
+                let mut encoded_obj = IndexMap::new();
+                for (key, val) in v {
+                    let encoded_value = encode(Some(val))?;
+                    encoded_obj.insert(key.to_string(), encoded_value);
+                }
+                Ok(BfeValue::Object(encoded_obj))
+            }
+            Value::String(v) => {
+                let encoded_str;
+                if v.starts_with('@') {
+                    encoded_str = encode_feed(&v)?
+                } else if v.starts_with('%') {
+                    encoded_str = encode_msg(&v)?
+                } else if v.starts_with('&') {
+                    encoded_str = encode_blob(&v)?
+                } else if v.ends_with(".sig.ed25519") {
+                    encoded_str = encode_sig(&v)?
+                } else if v.ends_with(".box2") || v.ends_with(".box") {
+                    encoded_str = encode_box(&v)?
+                } else {
+                    encoded_str = encode_string(&v)?
+                }
+                Ok(BfeValue::Buffer(encoded_str))
+            }
+            Value::Bool(v) => {
+                let encoded_bool = encode_bool(v)?;
+                Ok(BfeValue::Buffer(encoded_bool))
+            }
+            Value::SignedInteger(v) => Ok(BfeValue::SignedInteger(v)),
+            Value::UnsignedInteger(v) => Ok(BfeValue::UnsignedInteger(v)),
+            Value::Float(v) => Ok(BfeValue::Float(v)),
+            _ => Err(anyhow!("Not encoding unknown value: {:?}", val)),
+        },
+        None => Ok(BfeValue::Buffer(NIL_TFD.to_vec())),
     }
 }
 
@@ -385,10 +390,7 @@ pub fn decode_feed(feed_id: Vec<u8>) -> Result<String> {
 }
 
 /// Take a message ID as an encoded byte vector and return a decoded string representation.
-pub fn decode_msg(msg_id: Vec<u8>) -> Result<Option<String>> {
-    if msg_id.len() == 2 {
-        return Ok(None);
-    }
+pub fn decode_msg(msg_id: Vec<u8>) -> Result<String> {
     let msg_extension;
     if &msg_id[..2] == CLASSIC_MSG_TF {
         msg_extension = ".sha256"
@@ -403,7 +405,7 @@ pub fn decode_msg(msg_id: Vec<u8>) -> Result<Option<String>> {
     let b64_type = base64::encode(&msg_id[2..]);
     let decoded_msg_id = format!("%{}{}", b64_type, msg_extension.to_string());
 
-    Ok(Some(decoded_msg_id))
+    Ok(decoded_msg_id)
 }
 
 /// Take a signature as an encoded byte vector and return a string.
@@ -426,7 +428,7 @@ pub fn decode_string(string: Vec<u8>) -> Result<String> {
 /// Take a BFE value, match on the value type(s) and call the appropriate decoder(s).
 ///
 /// Returns the decoded value in the form of a `Result<Value>`.
-pub fn decode(value: &BfeValue) -> Result<Value> {
+pub fn decode(value: BfeValue) -> Result<Value> {
     match value {
         BfeValue::Array(arr) => {
             let mut decoded_arr = Vec::new();
@@ -434,39 +436,43 @@ pub fn decode(value: &BfeValue) -> Result<Value> {
                 let decoded_item = decode(item)?;
                 decoded_arr.push(decoded_item);
             }
-            Ok(json!(decoded_arr))
+            Ok(Value::Array(decoded_arr))
         }
         BfeValue::Buffer(buf) => {
-            let mut decoded_buf = None;
             if buf.len() < 2 {
                 return Err(anyhow!(
                     "Buffer is missing first two type&format fields: {:?}",
                     buf
                 ));
             } else if &buf[..2] == STRING_TF {
-                decoded_buf = Some(decode_string(buf.to_vec())?)
+                let decoded_buf = decode_string(buf.to_vec())?;
+                Ok(Value::String(decoded_buf))
             } else if &buf[..2] == BOOL_TF {
-                return Ok(json!(decode_bool(buf.to_vec())));
+                Ok(Value::Bool(decode_bool(buf.to_vec())))
             } else if &buf[..2] == NIL_TF {
-                decoded_buf = None
+                Ok(Value::Null)
             } else if &buf[..1] == FEED_T {
-                decoded_buf = Some(decode_feed(buf.to_vec())?)
+                let decoded_buf = decode_feed(buf.to_vec())?;
+                Ok(Value::String(decoded_buf))
             } else if &buf[..1] == MSG_T {
-                // ignore the None return type (msg.len() == 2)
-                if let Some(val) = decode_msg(buf.to_vec())? {
-                    decoded_buf = Some(val)
-                }
+                let decoded_buf = decode_msg(buf.to_vec())?;
+                Ok(Value::String(decoded_buf))
             } else if &buf[..1] == BLOB_T {
-                decoded_buf = Some(decode_blob(buf.to_vec())?)
+                let decoded_buf = decode_blob(buf.to_vec())?;
+                Ok(Value::String(decoded_buf))
             } else if &buf[..1] == BOX_T {
-                decoded_buf = Some(decode_box(buf.to_vec())?)
+                let decoded_buf = decode_box(buf.to_vec())?;
+                Ok(Value::String(decoded_buf))
             } else if &buf[..2] == SIGNATURE_TF {
-                decoded_buf = Some(decode_sig(buf.to_vec())?)
+                let decoded_buf = decode_sig(buf.to_vec())?;
+                Ok(Value::String(decoded_buf))
             } else {
+                // we represent the Vec<u8> as a key-value map to match JS
+                let mut buf_obj = IndexMap::new();
                 // no match: return the buffer value without decoding
-                return Ok(json!({ "Buffer": buf }));
+                buf_obj.insert("Buffer".to_string(), Value::Buf(buf));
+                Ok(Value::Object(buf_obj))
             }
-            Ok(json!(decoded_buf))
         }
         BfeValue::Object(obj) => {
             let mut decoded_obj = IndexMap::new();
@@ -474,27 +480,27 @@ pub fn decode(value: &BfeValue) -> Result<Value> {
                 let decoded_value = decode(v)?;
                 decoded_obj.insert(k.to_string(), decoded_value);
             }
-            Ok(json!(decoded_obj))
+            Ok(Value::Object(decoded_obj))
         }
-        BfeValue::Float(float) => Ok(json!(float)),
-        BfeValue::SignedInteger(int) => Ok(json!(int)),
-        BfeValue::UnsignedInteger(int) => Ok(json!(int)),
+        BfeValue::Float(float) => Ok(Value::Float(float)),
+        BfeValue::SignedInteger(int) => Ok(Value::SignedInteger(int)),
+        BfeValue::UnsignedInteger(int) => Ok(Value::UnsignedInteger(int)),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::BfeValue;
     use crate::{
         decode, decode_blob, decode_bool, decode_box, decode_feed, decode_msg, decode_sig,
         decode_string, encode, encode_blob, encode_bool, encode_box, encode_feed, encode_msg,
         encode_sig, encode_string, get_box_type, get_feed_type, get_msg_type,
     };
+    use crate::{BfeValue, Value};
     use crate::{
         BENDYBT_FEED_TF, BENDYBT_MSG_TF, BOX1_TF, BOX2_TF, CLASSIC_FEED_TF, CLASSIC_MSG_TF,
         GABBYGR_FEED_TF, GABBYGR_MSG_TF,
     };
-    use serde_json::json;
+    use indexmap::IndexMap;
 
     #[test]
     fn get_box_type_matches_box1() {
@@ -650,28 +656,32 @@ mod tests {
         assert_eq!(expected, encoded_value);
         let decoded = decode_msg(encoded_value);
         assert!(decoded.is_ok());
-        let decoded_option = decoded.unwrap();
-        assert!(decoded_option.is_some());
-        let decoded_value = decoded_option.unwrap();
+        let decoded_value = decoded.unwrap();
         assert_eq!(CLASSIC_MSG, decoded_value);
     }
 
     #[test]
     fn encode_and_decode_object_works() {
-        let v = json!({
-            "feed": CLASSIC_FEED,
-            "sig": SIG,
-            "blob": BLOB,
-            "backups": true,
-            "recurse": [null, "thing", false]
-        });
-        let encoded = encode(&v);
+        let mut v_im = IndexMap::new();
+        v_im.insert("feed".to_string(), Value::String(CLASSIC_FEED.to_string()));
+        v_im.insert("sig".to_string(), Value::String(SIG.to_string()));
+        v_im.insert("blob".to_string(), Value::String(BLOB.to_string()));
+        v_im.insert("backups".to_string(), Value::Bool(true));
+        let arr = Value::Array(vec![
+            Value::Null,
+            Value::String("thing".to_string()),
+            Value::Bool(false),
+        ]);
+        v_im.insert("recurse".to_string(), arr);
+        let v = Value::Object(v_im);
+        let v_clone = v.clone();
+        let encoded = encode(Some(v));
         assert!(encoded.is_ok());
         let encoded_value = encoded.unwrap();
-        let decoded = decode(&encoded_value);
+        let decoded = decode(encoded_value);
         assert!(decoded.is_ok());
         let decoded_value = decoded.unwrap();
-        assert_eq!(v, decoded_value);
+        assert_eq!(v_clone, decoded_value);
     }
 
     #[test]
@@ -710,22 +720,24 @@ mod tests {
 
     #[test]
     fn encode_value_array_works() {
-        let v = json!(["ichneumonid", "coleopteran"]);
-        let result = encode(&v);
+        let v = Value::Array(vec![
+            Value::String("ichneumonid".to_string()),
+            Value::String("coleopteran".to_string()),
+        ]);
+        let result = encode(Some(v));
         assert!(result.is_ok());
     }
 
     #[test]
     fn encode_value_bool_works() {
-        let v = json!(true);
-        let result = encode(&v);
+        let v = Value::Bool(true);
+        let result = encode(Some(v));
         assert!(result.is_ok());
     }
 
     #[test]
     fn encode_value_null_works() {
-        let v = json!(null);
-        let encoded = encode(&v);
+        let encoded = encode(None);
         assert!(encoded.is_ok());
         let encoded_value = encoded.unwrap();
         assert_eq!(BfeValue::Buffer([6, 2].to_vec()), encoded_value);
@@ -733,19 +745,21 @@ mod tests {
 
     #[test]
     fn encode_value_string_works() {
-        let v = json!("pyrophilous fungi");
-        let result = encode(&v);
+        let v = Value::String("pyrophilous fungi".to_string());
+        let result = encode(Some(v));
         assert!(result.is_ok());
     }
 
     #[test]
     fn decode_returns_unmatched_buffer() {
         let buf = BfeValue::Buffer([7, 7, 7].to_vec());
-        let decoded = decode(&buf);
+        let mut buf_map = IndexMap::new();
+        buf_map.insert("Buffer".to_string(), Value::Buf([7, 7, 7].to_vec()));
+        let buf_val = Value::Object(buf_map);
+        let decoded = decode(buf);
         assert!(decoded.is_ok());
-        let json_buf = json!(buf);
         let decoded_value = decoded.unwrap();
-        assert_eq!(json_buf, decoded_value);
+        assert_eq!(buf_val, decoded_value);
     }
 
     const BLOB: &str = "&S7+CwHM6dZ9si5Vn4ftpk/l/ldbRMqzzJos+spZbWf4=.sha256";
