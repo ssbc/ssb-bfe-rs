@@ -27,9 +27,9 @@
 //! ## Example
 //!
 //!```
-//! use serde_json::json;
+//! //use serde_json::json;
 //!
-//! let value = json!({
+//! let value: Value = Value::Object({
 //!     "author": "@6CAxOI3f+LUOVrbAl0IemqiS7ATpQvr9Mdw9LC4+Uv0=.bbfeed-v1",
 //!     "previous": "%R8heq/tQoxEIPkWf0Kxn1nCm/CsxG2CDpUYnAvdbXY8=.bbmsg-v1"
 //! });
@@ -109,7 +109,7 @@ pub enum Value {
     Null,
     Array(Vec<Value>),
     Bool(bool),
-    Buf(Vec<u8>),
+    Buffer(Vec<u8>),
     Float(f64),
     Object(IndexMap<String, Value>),
     SignedInteger(i64),
@@ -279,7 +279,7 @@ pub fn encode_string(string: &str) -> Result<Vec<u8>> {
     Ok(encoded_string)
 }
 
-/// Take a value, match on the type(s) and call the appropriate encoder(s). Not that this does
+/// Take a value, match on the type(s) and call the appropriate encoder(s). Note that this does
 /// _not_ take a JSON value but, rather, a custom `Value` type defined by this library.
 ///
 /// Returns the encoded value in the form of a `Result<BfeValue>`.
@@ -326,6 +326,7 @@ pub fn encode(value: Option<Value>) -> Result<BfeValue> {
             Value::SignedInteger(v) => Ok(BfeValue::SignedInteger(v)),
             Value::UnsignedInteger(v) => Ok(BfeValue::UnsignedInteger(v)),
             Value::Float(v) => Ok(BfeValue::Float(v)),
+            Value::Null => Ok(BfeValue::Buffer(NIL_TFD.to_vec())),
             _ => Err(anyhow!("Not encoding unknown value: {:?}", val)),
         },
         None => Ok(BfeValue::Buffer(NIL_TFD.to_vec())),
@@ -468,10 +469,10 @@ pub fn decode(value: BfeValue) -> Result<Value> {
                 Ok(Value::String(decoded_buf))
             } else {
                 // we represent the Vec<u8> as a key-value map to match JS
-                let mut buf_obj = IndexMap::new();
+                //let mut buf_obj = IndexMap::new();
                 // no match: return the buffer value without decoding
-                buf_obj.insert("Buffer".to_string(), Value::Buf(buf));
-                Ok(Value::Object(buf_obj))
+                //buf_obj.insert("Buffer".to_string(), Value::Buf(buf));
+                Ok(Value::Buffer(buf))
             }
         }
         BfeValue::Object(obj) => {
@@ -674,9 +675,10 @@ mod tests {
         ]);
         v_im.insert("recurse".to_string(), arr);
         let v = Value::Object(v_im);
+        println!("{:?}", v);
         let v_clone = v.clone();
         let encoded = encode(Some(v));
-        assert!(encoded.is_ok());
+        //assert!(encoded.is_ok());
         let encoded_value = encoded.unwrap();
         let decoded = decode(encoded_value);
         assert!(decoded.is_ok());
@@ -753,9 +755,7 @@ mod tests {
     #[test]
     fn decode_returns_unmatched_buffer() {
         let buf = BfeValue::Buffer([7, 7, 7].to_vec());
-        let mut buf_map = IndexMap::new();
-        buf_map.insert("Buffer".to_string(), Value::Buf([7, 7, 7].to_vec()));
-        let buf_val = Value::Object(buf_map);
+        let buf_val = Value::Buffer([7, 7, 7].to_vec());
         let decoded = decode(buf);
         assert!(decoded.is_ok());
         let decoded_value = decoded.unwrap();
