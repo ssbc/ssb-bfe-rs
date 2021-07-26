@@ -463,9 +463,8 @@ pub fn decode(value: &BfeValue) -> Result<Value> {
             } else if &buf[..2] == SIGNATURE_TF {
                 decoded_buf = Some(decode_sig(buf.to_vec())?)
             } else {
-                let buffer_str = str::from_utf8(buf)
-                    .with_context(|| format!("The string bytes are not valid UTF-8: {:?}", buf))?;
-                decoded_buf = Some(base64::encode(buffer_str))
+                // no match: return the buffer value without decoding
+                return Ok(json!({ "Buffer": buf }));
             }
             Ok(json!(decoded_buf))
         }
@@ -487,9 +486,9 @@ pub fn decode(value: &BfeValue) -> Result<Value> {
 mod tests {
     use crate::BfeValue;
     use crate::{
-        decode, decode_bool, decode_box, decode_feed, decode_msg, decode_sig, decode_string,
-        encode, encode_bool, encode_box, encode_feed, encode_msg, encode_sig, encode_string,
-        get_box_type, get_feed_type, get_msg_type,
+        decode, decode_blob, decode_bool, decode_box, decode_feed, decode_msg, decode_sig,
+        decode_string, encode, encode_blob, encode_bool, encode_box, encode_feed, encode_msg,
+        encode_sig, encode_string, get_box_type, get_feed_type, get_msg_type,
     };
     use crate::{
         BENDYBT_FEED_TF, BENDYBT_MSG_TF, BOX1_TF, BOX2_TF, CLASSIC_FEED_TF, CLASSIC_MSG_TF,
@@ -574,6 +573,19 @@ mod tests {
     }
 
     #[test]
+    fn encode_and_decode_blob_works() {
+        let encoded = encode_blob(BLOB);
+        assert!(encoded.is_ok());
+        let encoded_value = encoded.unwrap();
+        let expected = vec![2, 0];
+        assert_eq!(expected, &encoded_value[..2]);
+        let decoded = decode_blob(encoded_value);
+        assert!(decoded.is_ok());
+        let decoded_value = decoded.unwrap();
+        assert_eq!(BLOB, decoded_value);
+    }
+
+    #[test]
     fn encode_and_decode_bool_works() {
         let encoded = encode_bool(true);
         assert!(encoded.is_ok());
@@ -647,8 +659,9 @@ mod tests {
     #[test]
     fn encode_and_decode_object_works() {
         let v = json!({
-            "feed": "@d/zDvFswFbQaYJc03i47C9CgDev+/A8QQSfG5l/SEfw=.ed25519",
-            "sig": "nkY4Wsn9feosxvX7bpLK7OxjdSrw6gSL8sun1n2TMLXKySYK9L5itVQnV2nQUctFsrUOa2istD2vDk1B0uAMBQ==.sig.ed25519",
+            "feed": CLASSIC_FEED,
+            "sig": SIG,
+            "blob": BLOB,
             "backups": true,
             "recurse": [null, "thing", false]
         });
@@ -725,6 +738,17 @@ mod tests {
         assert!(result.is_ok());
     }
 
+    #[test]
+    fn decode_returns_unmatched_buffer() {
+        let buf = BfeValue::Buffer([7, 7, 7].to_vec());
+        let decoded = decode(&buf);
+        assert!(decoded.is_ok());
+        let json_buf = json!(buf);
+        let decoded_value = decoded.unwrap();
+        assert_eq!(json_buf, decoded_value);
+    }
+
+    const BLOB: &str = "&S7+CwHM6dZ9si5Vn4ftpk/l/ldbRMqzzJos+spZbWf4=.sha256";
     const BOX_1: &str = "siZEm1zFx1icq0SrEynGDpNRmJCXMxTB3iEteXFn+IhJH8WhMbT8tp9qOIaFkIYcdOyerSon6RK0l4RE1ZdDh/3lcGZSdP0Ljq59qsdqlf2ngwbIbV9AWdPRrPsoVZBV6RhI+YcVTloWWP5aauu1hZKjcm62ezLBTQ3EmFPYtDuwsOFkx9/7FP97ljhj67CwvlGzuiWp6FNICHbt5kOCxs9H0k6Tr8JJVdaJtJ2pqkX4p0ECMuEuYxCYbh3FpncCqlNZJXb0dj3iSsfsMNWTJLDqfkqJKH1jBVfxDL6+xAXBDS+E4F2hD4y9gRDZEej99uVBQWlbxr5eCRV+VbfBGYxwoAYtqux6rg3jBabImKKinBwHShEP5F/+wlb9IxQn4swyOgyv+UKx/jbx+91Ayso5bnNPZMpwRRX5p5DbpK1BnryeVJhktMgFqgni1g0lHyU8sQ2QzwZgXGw7dfYoamkqK4D24NOLnUoHuVuhd7Q5SxZWSAO6wpDa4nrODePoJdl328pbMwCoQlUNeHINmKxh/o/oCNbgXitn4oN3kSVEg/umdgwwI94gmZUjiYwP1v7HA7dI.box";
     const BOX_2: &str = "WQyfhDDHQ1gH34uppHbj8SldRu8hD2764gQ6TAhaVp6R01EMBnJQj5ewD5F+UT5NwvV91uU8q5XCjuvcP4ihCJ0RtX8HjKyN+tDKP5gKB3UZo/eO/rP5CcPGoIG7pcLBsd3DQbZLfTnb/iqECEji9gclNcGENTS2u6aATwbQ4uQ7RzIAKKT2NfC2qk86p/gXC2owDFAazuPlQTT8DMNvO8G52gb48a75CGKsDAevrC//Bz38VFxwUiTKzRWaxCbTK9knj39u3qoCP9VLyyRqITgNwvlGLP7ndchTyBiO0TPNkb9PAOenw5WBjyWhA61hpG+VkKpkaysBVGjXYv8OpV1HGbs87TI79uT7JrNV4wEZiwqGknwmCi5B2gbd7tav8yDXsK5yQgDncHQjZotsBFX2adP7Jli9WmvV3xX5lL3kBNKV0ZiE/DZUgB2m1OXvCjNI4fuZhnpZpEQi9coO+icrirKiH/UA8TS9HI72cIbkEJVxOTnKnsgr3Qc/5HhtRS17a54ymVmBsnpP+KqqCqKLN50TInb7qoUlvQ2nw07xX3Ig9usLb8Ik8U8XMb6SLqACxlZN/qW4EJzxVetoIk84AU1yLInK6v9dzfsewRYBXW8+lYbyxVNuIIK4pKYsx2WbjuJyZHgjgbCdGf/kjqP5rDs4zwqj2lmkO70PoEUrcSi46J2hkqtcrd1yl+F3/BDwFlxAXH+x4+LhmT7g+BSgzRUbWvCyeB+HJaoao6g4K/Fs8HxnbVB1zW761OQJaQnV86ZThkvUjXh2SEBlBd+D94eUCqIJkjI7RLt+D/0gxg/D7u1Zq14UxRijZryB51An7GdXtEc2xhU+Bh/aPmKmMZ9D/ArdglSlnVUD8OIBVVw5jtooGlhxbOFHM4N5SoAO/yWPcbcuQz7t4SPij358rY574DLBGZEPCrS6KPpnrlqlnZK4f6/+9zv3hfzNTXVvJtxZL/rvmNvbgh7LpMnSqjnsXqm86a3GXeVWD83TdCnL1oPqEi/8RItTrjy01DmVhUoV6t12STP4mHb8RjR+/ks+7lowfV3HQ13n6if0g0/u+Bzv6XXOX6iePPOHA3lFv2MSPKf9JZ0uQiqajR03YkNE8YnSTYu0Io1cGPZ/lWBp2tyWtwFmGtqw/9+O165tJhrdU2EXJ4T/XP136WpLD2+vtYsx3Xr5lfeD12/g+I/6jwduqTuHpst2tqvcSWoZ4DAWcpcKJ1mUbJU3/mLAYGwWb3XuqMOgJOLoztAwd5xFzUZD1MnR/iyYoZ2weYTSOz3OKR3cJyCjxBhIGaX5xpAc61K1dXNfERBJr9TS0mL2578dd5AauE6Ksn6YlGxNJIVC3VpdAtRbVHNX1g==.box2";
     const BB_FEED: &str = "@6CAxOI3f+LUOVrbAl0IemqiS7ATpQvr9Mdw9LC4+Uv0=.bbfeed-v1";
