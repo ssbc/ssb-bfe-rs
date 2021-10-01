@@ -7,12 +7,18 @@ use phf::{phf_ordered_map, OrderedMap};
 
 /// A tuple struct defining all possible BFE specification data points.
 pub struct BfeSpecData<'a>(
-    pub &'a [u8],        // type_format_code
-    pub Option<usize>,   // data_length
-    pub Option<usize>,   // key_length
-    pub Option<usize>,   // signature_length
-    pub Option<&'a str>, // sigil
-    pub Option<&'a str>, // suffix
+    /// type-format code
+    pub &'a [u8],
+    /// data length
+    pub Option<usize>,
+    /// key length
+    pub Option<usize>,
+    /// signature length
+    pub Option<usize>,
+    /// sigil
+    pub Option<&'a str>,
+    /// suffix
+    pub Option<&'a str>,
 );
 
 /// Encoded value for boolean true value.
@@ -28,14 +34,16 @@ pub const BOOL_FALSE: &[u8] = &[0x00];
 /// Tuple indexing or destructuring can be used to access values.
 ///
 /// ```rust
+/// use ssb_bfe_rs::data::TYPES;
+///
 /// // get the type code for "feed"
-/// let feed_type_code = TYPES["feed"].0;
+/// let feed_type_code = &TYPES["feed"].0;
 ///
 /// // get the formats for "message"
-/// let mgs_formats = TYPES["message"].1;
+/// let mgs_formats = &TYPES["message"].1;
 ///
 /// // get the type code and formats for "blob"
-/// let (code, formats) = TYPES["blob"];
+/// let (code, formats) = &TYPES["blob"];
 /// ```
 pub const TYPES: OrderedMap<&str, (&[u8], OrderedMap<&str, BfeSpecData>)> = phf_ordered_map! {
     // "type_name" =>   (type_code, type_formats)
@@ -61,14 +69,16 @@ pub const TYPES: OrderedMap<&str, (&[u8], OrderedMap<&str, BfeSpecData>)> = phf_
 /// Tuple indexing or destructuring can be used to access values.
 ///
 /// ```rust
+/// use ssb_bfe_rs::data::{BfeSpecData, FEED_FORMATS};
+///
 /// // get the bfe spec data for the "gabbygrove-v1" "feed" format
-/// let classic_feed_data = FEED_FORMATS["gabbygrove-v1"];
+/// let classic_feed_data = &FEED_FORMATS["gabbygrove-v1"];
 ///
 /// // get the type-format code for "classic" "feed" format
-/// let classic_feed_tf = FEED_FORMATS["classic"].0;
+/// let classic_feed_tf = &FEED_FORMATS["classic"].0;
 ///
 /// // get the type-format code, data length, sigil and suffix for the "classic" "feed" format (`_` means "ignore this position in the tuple")
-/// let BfeSpecData(code, data_len, _, _, sigil, suffix) = FEED_FORMATS["classic"];
+/// let BfeSpecData(code, data_len, _, _, sigil, suffix) = &FEED_FORMATS["classic"];
 /// ```
 pub const FEED_FORMATS: OrderedMap<&str, BfeSpecData> = phf_ordered_map! {
     // "format_name" => BfeSpecData(type_format_code, data_length, key_length, signature_length, sigil, suffix)
