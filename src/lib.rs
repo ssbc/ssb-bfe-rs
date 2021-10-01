@@ -145,7 +145,8 @@ pub fn encode_blob(blob_id: &str) -> Result<Vec<u8>> {
 }
 
 /// Take a boolean value as a string and return the encoded bytes as a vector.
-pub fn encode_bool(boolean: bool) -> Result<Vec<u8>> {
+
+pub fn encode_bool(boolean: &bool) -> Result<Vec<u8>> {
     let boolean_tf = GENERIC_FORMATS["boolean"].0;
     let bool_vec = match boolean {
         true => [boolean_tf, BOOL_TRUE].concat(),
@@ -588,7 +589,7 @@ mod tests {
 
     #[test]
     fn encode_and_decode_bool_works() {
-        let encoded = encode_bool(true);
+        let encoded = encode_bool(&true);
         assert!(encoded.is_ok());
         let encoded_value = encoded.unwrap();
         let expected = [GENERIC_FORMATS["boolean"].0, BOOL_TRUE].concat();
