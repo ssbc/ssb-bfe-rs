@@ -273,60 +273,60 @@ pub fn encode_uri(uri: &str) -> Result<Vec<u8>> {
 ///
 /// Returns the encoded value in the form of a `Result<BfeValue>`.
 pub fn encode(value: &Value) -> Result<BfeValue> {
-    if value.is_array() {
-        let value_arr = value.as_array().context("NoneError for `value.as_array`")?;
-        let mut encoded_arr = Vec::new();
-        for item in value_arr {
-            let encoded_item = encode(item)?;
-            encoded_arr.push(encoded_item);
+    match value {
+        Value::Array(v) => {
+            let mut encoded_arr = Vec::new();
+            for item in v {
+                let encoded_item = encode(item)?;
+                encoded_arr.push(encoded_item);
+            }
+            Ok(BfeValue::Array(encoded_arr))
         }
-        Ok(BfeValue::Array(encoded_arr))
-    } else if value.is_null() {
-        Ok(BfeValue::Buffer(GENERIC_FORMATS["nil"].0.to_vec()))
-    } else if !value.is_array() && value.is_object() && !value.is_null() {
-        let value_obj = value
-            .as_object()
-            .context("NoneError for `value.as_object`")?;
-        let mut encoded_obj = IndexMap::new();
-        for (k, v) in value_obj {
-            let encoded_value = encode(v)?;
-            encoded_obj.insert(k.to_string(), encoded_value);
+        Value::Object(v) => {
+            let mut encoded_obj = IndexMap::new();
+            for (key, val) in v {
+                let encoded_value = encode(val)?;
+                encoded_obj.insert(key.to_string(), encoded_value);
+            }
+            Ok(BfeValue::Object(encoded_obj))
         }
-        Ok(BfeValue::Object(encoded_obj))
-    } else if value.is_string() {
-        let value_str = value.as_str().context("NoneError for `value.as_str`")?;
-        let encoded_str;
-        if value_str.starts_with("ssb:") {
-            encoded_str = encode_uri(value_str)?
-        } else if value_str.starts_with('@') {
-            encoded_str = encode_feed(value_str)?
-        } else if value_str.starts_with('%') {
-            encoded_str = encode_msg(value_str)?
-        } else if value_str.starts_with('&') {
-            encoded_str = encode_blob(value_str)?
-        } else if value_str.ends_with(".sig.ed25519") {
-            encoded_str = encode_sig(value_str)?
-        } else if value_str.ends_with(".box2") || value_str.ends_with(".box") {
-            encoded_str = encode_box(value_str)?
-        } else {
-            encoded_str = encode_string(value_str)?
+        Value::String(v) => {
+            let encoded_str;
+            if v.starts_with("ssb:") {
+                encoded_str = encode_uri(v)?
+            } else if v.starts_with('@') {
+                encoded_str = encode_feed(v)?
+            } else if v.starts_with('%') {
+                encoded_str = encode_msg(v)?
+            } else if v.starts_with('&') {
+                encoded_str = encode_blob(v)?
+            } else if v.ends_with(".sig.ed25519") {
+                encoded_str = encode_sig(v)?
+            } else if v.ends_with(".box2") || v.ends_with(".box") {
+                encoded_str = encode_box(v)?
+            } else {
+                encoded_str = encode_string(v)?
+            }
+            Ok(BfeValue::Buffer(encoded_str))
         }
-        Ok(BfeValue::Buffer(encoded_str))
-    } else if value.is_boolean() {
-        let value_bool = value.as_bool().context("NoneError for `value.as_bool`")?;
-        let encoded_bool = encode_bool(value_bool)?;
-        Ok(BfeValue::Buffer(encoded_bool))
-    } else if value.is_i64() {
-        let int = value.as_i64().context("NoneError for `value.as_i64`")?;
-        Ok(BfeValue::SignedInteger(int))
-    } else if value.is_u64() {
-        let int = value.as_u64().context("NoneError for `value.as_u64`")?;
-        Ok(BfeValue::UnsignedInteger(int))
-    } else if value.is_f64() {
-        let float = value.as_f64().context("NoneError for `value.as_f64`")?;
-        Ok(BfeValue::Float(float))
-    } else {
-        Err(anyhow!("Not encoding unknown value: {}", value))
+        Value::Bool(v) => {
+            let encoded_bool = encode_bool(v)?;
+            Ok(BfeValue::Buffer(encoded_bool))
+        }
+        Value::Number(v) => {
+            if v.is_i64() {
+                let int = v.as_i64().context("NoneError for `value.as_i64`")?;
+                Ok(BfeValue::SignedInteger(int))
+            } else if v.is_u64() {
+                let int = v.as_u64().context("NoneError for `value.as_u64`")?;
+                Ok(BfeValue::UnsignedInteger(int))
+            } else {
+                // the only other possible option is f64
+                let float = v.as_f64().context("NoneError for `value.as_f64`")?;
+                Ok(BfeValue::Float(float))
+            }
+        }
+        Value::Null => Ok(BfeValue::Buffer(GENERIC_FORMATS["nil"].0.to_vec())),
     }
 }
 
