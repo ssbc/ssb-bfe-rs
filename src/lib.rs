@@ -356,10 +356,10 @@ pub fn decode_box(box_vec: Vec<u8>) -> Result<String> {
     let box_extension;
 
     if &box_vec[..2] == ENCRYPTED_FORMATS["box1"].0 {
-        // assign the suffix (`Some(suffix)` at tuple index 5)
-        box_extension = ENCRYPTED_FORMATS["box1"].5.unwrap()
+        // assign the suffix (`Some(suffix)` at tuple index 4)
+        box_extension = ENCRYPTED_FORMATS["box1"].4.unwrap()
     } else if &box_vec[..2] == ENCRYPTED_FORMATS["box2"].0 {
-        box_extension = ENCRYPTED_FORMATS["box2"].5.unwrap()
+        box_extension = ENCRYPTED_FORMATS["box2"].4.unwrap()
     } else {
         return Err(anyhow!("Unknown box: {:?}", box_vec));
     }
