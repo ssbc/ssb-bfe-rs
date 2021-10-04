@@ -2,6 +2,8 @@
 
 Binary Field Encodings (BFE) for Secure Scuttlebutt (SSB).
 
+[![ssb-bfe-rs crate](https://img.shields.io/crates/v/ssb-bfe-rs)](https://crates.io/crates/ssb-bfe-rs)
+
 Based on the JavaScript reference implementation: [ssb-bfe](https://github.com/ssb-ngi-pointer/ssb-bfe) (written according to the [specification](https://github.com/ssb-ngi-pointer/ssb-binary-field-encodings-spec)).
 
 While `encode()` and `decode()` are the two primary functions exposed by this crate, the various helper functions and values are also exported for public use.
