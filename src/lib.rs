@@ -1,6 +1,4 @@
-//! # ssb-bfe-rs
-//!
-//! Binary Field Encodings (BFE) for Secure Scuttlebutt (SSB).
+//! # Binary Field Encodings (BFE) for Secure Scuttlebutt (SSB).
 //!
 //! Based on the JavaScript reference implementation: [ssb-bfe](https://github.com/ssb-ngi-pointer/ssb-bfe) (written according to the [specification](https://github.com/ssb-ngi-pointer/ssb-binary-field-encodings-spec)).
 //!
@@ -30,80 +28,35 @@
 //! use serde_json::json;
 //!
 //! let value = json!({
-//!     "author": "@6CAxOI3f+LUOVrbAl0IemqiS7ATpQvr9Mdw9LC4+Uv0=.bbfeed-v1",
-//!     "previous": "%R8heq/tQoxEIPkWf0Kxn1nCm/CsxG2CDpUYnAvdbXY8=.bbmsg-v1"
+//!     "author": "@6CAxOI3f+LUOVrbAl0IemqiS7ATpQvr9Mdw9LC4+Uv0=.ed25519",
+//!     "previous": "%R8heq/tQoxEIPkWf0Kxn1nCm/CsxG2CDpUYnAvdbXY8=.sha256",
+//!     "bb_msg": "ssb:message/bendybutt-v1/HZVnEzm0NgoSVfG0Hx4gMFbMMHhFvhJsG2zK_pijYII="
 //! });
 //!
 //! let encoded = ssb_bfe_rs::encode(&value);
 //! let encoded_value = encoded.unwrap();
 //! println!("{:X?}", encoded_value);
 //!
-//! // Object({"author": Buffer([0, 3, E8, 20, 31, 38, 8D, DF, F8, B5, E, 56, B6, C0, 97, 42, 1E, 9A, A8, 92, EC, 4, E9, 42, FA, FD, 31, DC, 3D, 2C, 2E, 3E, 52, FD]), "previous": Buffer([1, 4, 47, C8, 5E, AB, FB, 50, A3, 11, 8, 3E, 45, 9F, D0, AC, 67, D6, 70, A6, FC, 2B, 31, 1B, 60, 83, A5, 46, 27, 2, F7, 5B, 5D, 8F])})
+//! // Object({"author": Buffer([0, 0, E8, 20, 31, 38, 8D, DF, F8, B5, E, 56, B6, C0, 97, 42, 1E, 9A, A8, 92, EC, 4, E9, 42, FA, FD, 31, DC, 3D, 2C, 2E, 3E, 52, FD]), "previous": Buffer([1, 0, 47, C8, 5E, AB, FB, 50, A3, 11, 8, 3E, 45, 9F, D0, AC, 67, D6, 70, A6, FC, 2B, 31, 1B, 60, 83, A5, 46, 27, 2, F7, 5B, 5D, 8F]), "bb_msg": Buffer([1, 4, 1D, 95, 67, 13, 39, B4, 36, A, 12, 55, F1, B4, 1F, 1E, 20, 30, 56, CC, 30, 78, 45, BE, 12, 6C, 1B, 6C, CA, FE, 98, A3, 60, 82])})
 //!
 //! let decoded = ssb_bfe_rs::decode(&encoded_value);
 //! let decoded_value = decoded.unwrap();
 //! println!("{:?}", decoded_value);
 //!
-//! // Object({"author": String("@6CAxOI3f+LUOVrbAl0IemqiS7ATpQvr9Mdw9LC4+Uv0=.bbfeed-v1"), "previous": String("%R8heq/tQoxEIPkWf0Kxn1nCm/CsxG2CDpUYnAvdbXY8=.bbmsg-v1")})
+//! // Object({"author": String("@6CAxOI3f+LUOVrbAl0IemqiS7ATpQvr9Mdw9LC4+Uv0=.ed25519"), "previous": String("%R8heq/tQoxEIPkWf0Kxn1nCm/CsxG2CDpUYnAvdbXY8=.sha256"), "bb_msg": String("ssb:message/bendybutt-v1/HZVnEzm0NgoSVfG0Hx4gMFbMMHhFvhJsG2zK_pijYII=")})
 //! ```
+
+pub mod data;
+
 use std::str;
 
 use anyhow::{anyhow, Context, Result};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use ssb_uri_rs::Parts;
 
-/* The naming convention used for constant types follows the TFD spec (also known as TFK):
- * "T" - Type byte
- * "F" - Format byte
- * "D" - Data byte
- */
-
-/// Encoded value for feed type.
-pub const FEED_T: &[u8] = &[0x00];
-/// Encoded value for classic (legacy) feed type-format.
-pub const CLASSIC_FEED_TF: &[u8] = &[0x00, 0x00];
-/// Encoded value for Gabby Grove (GG) feed type-format.
-pub const GABBYGR_FEED_TF: &[u8] = &[0x00, 0x01];
-/// Encoded value for Bendy Butt (BB) feed type-format.
-pub const BENDYBT_FEED_TF: &[u8] = &[0x00, 0x03];
-
-/// Encoded value for message type.
-pub const MSG_T: &[u8] = &[0x01];
-/// Encoded value for classic (legacy) message type-format.
-pub const CLASSIC_MSG_TF: &[u8] = &[0x01, 0x00];
-/// Encoded value for Gabby Grove (GG) message type-format.
-pub const GABBYGR_MSG_TF: &[u8] = &[0x01, 0x01];
-/// Encoded value for Bendy Butt (BB) message type-format.
-pub const BENDYBT_MSG_TF: &[u8] = &[0x01, 0x04];
-
-/// Encoded value for blob type.
-pub const BLOB_T: &[u8] = &[0x02];
-/// Encoded value for classic blob type-format.
-pub const CLASSIC_BLOB_TF: &[u8] = &[0x02, 0x00];
-
-/// Encoded value for signature type-format.
-pub const SIGNATURE_TF: &[u8] = &[0x04, 0x00];
-
-/// Encoded value for box type (encrypted data).
-pub const BOX_T: &[u8] = &[0x05];
-/// Encoded value for box1 type-format.
-pub const BOX1_TF: &[u8] = &[0x05, 0x00];
-/// Encoded value for box2 type-format.
-pub const BOX2_TF: &[u8] = &[0x05, 0x01];
-
-/// Encoded value for string type-format.
-pub const STRING_TF: &[u8] = &[0x06, 0x00];
-/// Encoded value for boolean type-format.
-pub const BOOL_TF: &[u8] = &[0x06, 0x01];
-/// Encoded value for boolean true value.
-pub const BOOL_TRUE: &[u8] = &[0x01];
-/// Encoded value for boolean false value.
-pub const BOOL_FALSE: &[u8] = &[0x00];
-/// Encoded value for nil type-format.
-pub const NIL_TF: &[u8] = &[0x06, 0x02];
-/// Encoded value for nil type-format-data.
-pub const NIL_TFD: &[u8] = NIL_TF;
+use crate::data::*;
 
 /// Represents any valid BFE return value, including values for types which are encoded and those
 /// which are not (ie. integers and floats).
@@ -126,61 +79,56 @@ pub enum BfeValue {
 
 /// Take a blob ID as a string and return the encoded bytes representing the blob type-format.
 pub fn get_blob_type(blob_id: &str) -> Result<Vec<u8>> {
-    let blob_type;
+    let blob_tf;
     if blob_id.ends_with(".sha256") {
-        blob_type = CLASSIC_BLOB_TF
+        blob_tf = BLOB_FORMATS["classic"].0
     } else {
         return Err(anyhow!("Unknown blob ID: {}", blob_id));
     };
 
-    Ok(blob_type.to_vec())
+    Ok(blob_tf.to_vec())
 }
 
 /// Take a box as a string and return the encoded bytes representing the box type-format.
 // Note: box refers to an SSB `private box` and not a Rust `Box` (pointer type)
 pub fn get_box_type(boxed_str: &str) -> Result<Vec<u8>> {
-    let box_type;
+    let box_tf;
     if boxed_str.ends_with(".box") {
-        box_type = BOX1_TF
+        box_tf = ENCRYPTED_FORMATS["box1"].0
     } else if boxed_str.ends_with(".box2") {
-        box_type = BOX2_TF
+        box_tf = ENCRYPTED_FORMATS["box2"].0
     } else {
         return Err(anyhow!("Unknown boxed string: {}", boxed_str));
     };
 
-    Ok(box_type.to_vec())
+    Ok(box_tf.to_vec())
 }
 
 /// Take a feed ID (key) as a string and return the encoded bytes representing the feed type-format.
 pub fn get_feed_type(feed_id: &str) -> Result<Vec<u8>> {
-    let feed_type;
+    let feed_tf;
     if feed_id.ends_with(".ed25519") {
-        feed_type = CLASSIC_FEED_TF
-    } else if feed_id.ends_with(".bbfeed-v1") {
-        feed_type = BENDYBT_FEED_TF
-    } else if feed_id.ends_with(".ggfeed-v1") {
-        feed_type = GABBYGR_FEED_TF
+        feed_tf = FEED_FORMATS["classic"].0
     } else {
         return Err(anyhow!("Unknown feed format: {}", feed_id));
     };
 
-    Ok(feed_type.to_vec())
+    Ok(feed_tf.to_vec())
 }
 
 /// Take a message ID as a string and return the encoded bytes representing the message type-format.
 pub fn get_msg_type(msg_id: &str) -> Result<Vec<u8>> {
-    let msg_type;
+    let msg_tf;
+
     if msg_id.ends_with(".sha256") {
-        msg_type = CLASSIC_MSG_TF
-    } else if msg_id.ends_with(".bbmsg-v1") {
-        msg_type = BENDYBT_MSG_TF
-    } else if msg_id.ends_with(".ggmsg-v1") {
-        msg_type = GABBYGR_MSG_TF
+        msg_tf = MSG_FORMATS["classic"].0
+    } else if msg_id.ends_with(".cloaked") {
+        msg_tf = MSG_FORMATS["cloaked"].0
     } else {
         return Err(anyhow!("Unknown message ID: {}", msg_id));
     };
 
-    Ok(msg_type.to_vec())
+    Ok(msg_tf.to_vec())
 }
 
 /// Take a blob ID as a string and return the encoded bytes as a vector.
@@ -197,10 +145,12 @@ pub fn encode_blob(blob_id: &str) -> Result<Vec<u8>> {
 }
 
 /// Take a boolean value as a string and return the encoded bytes as a vector.
+
 pub fn encode_bool(boolean: &bool) -> Result<Vec<u8>> {
+    let boolean_tf = GENERIC_FORMATS["boolean"].0;
     let bool_vec = match boolean {
-        true => [BOOL_TF, BOOL_TRUE].concat(),
-        false => [BOOL_TF, BOOL_FALSE].concat(),
+        true => [boolean_tf, BOOL_TRUE].concat(),
+        false => [boolean_tf, BOOL_FALSE].concat(),
     };
 
     Ok(bool_vec.to_vec())
@@ -248,7 +198,7 @@ pub fn encode_msg(msg: &str) -> Result<Vec<u8>> {
 
 /// Take a signature as a string and return the encoded bytes as a vector.
 pub fn encode_sig(sig: &str) -> Result<Vec<u8>> {
-    let mut encoded_sig = SIGNATURE_TF.to_vec();
+    let mut encoded_sig = SIGNATURE_FORMATS["msg-ed25519"].0.to_vec();
     let sig_substring = sig.strip_suffix(".sig.ed25519").with_context(|| {
         format!(
             "Signature does not have a valid `.sig.ed25519` suffix: {}",
@@ -263,9 +213,61 @@ pub fn encode_sig(sig: &str) -> Result<Vec<u8>> {
 
 /// Take a string value and return the encoded bytes as a vector.
 pub fn encode_string(string: &str) -> Result<Vec<u8>> {
-    let encoded_string = [STRING_TF, string.as_bytes()].concat();
+    let string_tf = GENERIC_FORMATS["string-UTF8"].0;
+    let encoded_string = [string_tf, string.as_bytes()].concat();
 
     Ok(encoded_string)
+}
+
+/// Take an SSB URI as a string and return the encoded bytes as a vector.
+pub fn encode_uri(uri: &str) -> Result<Vec<u8>> {
+    // no bfe encoding for multiserver address and experimental uris; treat as string
+    if ssb_uri_rs::is_multiserver_uri(uri)? || ssb_uri_rs::is_experimental_uri(uri)? {
+        Ok(encode_string(uri)?)
+    } else {
+        let Parts(uri_type, uri_format, uri_data) = ssb_uri_rs::decompose_uri(uri)?;
+        match TYPES.contains_key(&uri_type) {
+            // no match? encode the uri as a string
+            false => Ok(encode_string(uri)?),
+            true => {
+                let (_, formats) = &TYPES[&uri_type];
+                match formats.get(&uri_format) {
+                    Some(format_data) => {
+                        let type_format_code = format_data.0;
+                        let data_len = format_data.1;
+                        let b64_data = base64::decode_config(uri_data, base64::STANDARD)?;
+                        if let Some(len) = data_len {
+                            if len != b64_data.len() {
+                                return Err(anyhow!(
+                                    "expected data to be length {}, but found {}",
+                                    len,
+                                    b64_data.len()
+                                ));
+                            } else {
+                                // concat the tf with the data and return it
+                                let encoded_uri = [type_format_code, &b64_data[..]].concat();
+
+                                Ok(encoded_uri)
+                            }
+                        } else {
+                            Err(anyhow!(
+                                "no data length exists for type `{}` with format `{}`",
+                                uri_type,
+                                uri_format
+                            ))
+                        }
+                    }
+                    // return error if format not recognised
+                    None => Err(anyhow!(
+                        "no encoder for type `{}` and format `{}` for SSB URI `{}`",
+                        uri_type,
+                        uri_format,
+                        uri
+                    )),
+                }
+            }
+        }
+    }
 }
 
 /// Take a JSON value, match on the value type(s) and call the appropriate encoder(s).
@@ -291,7 +293,9 @@ pub fn encode(value: &Value) -> Result<BfeValue> {
         }
         Value::String(v) => {
             let encoded_str;
-            if v.starts_with('@') {
+            if v.starts_with("ssb:") {
+                encoded_str = encode_uri(v)?
+            } else if v.starts_with('@') {
                 encoded_str = encode_feed(v)?
             } else if v.starts_with('%') {
                 encoded_str = encode_msg(v)?
@@ -323,21 +327,21 @@ pub fn encode(value: &Value) -> Result<BfeValue> {
                 Ok(BfeValue::Float(float))
             }
         }
-        Value::Null => Ok(BfeValue::Buffer(NIL_TFD.to_vec())),
+        Value::Null => Ok(BfeValue::Buffer(GENERIC_FORMATS["nil"].0.to_vec())),
     }
 }
 
 /// Take a blob ID as an encoded byte vector and return a decoded string representation.
 pub fn decode_blob(blob_id: Vec<u8>) -> Result<String> {
     let blob_extension;
-    if &blob_id[..2] == CLASSIC_BLOB_TF {
+    if &blob_id[..2] == BLOB_FORMATS["classic"].0 {
         blob_extension = ".sha256"
     } else {
         return Err(anyhow!("Unknown blob ID: {:?}", blob_id));
     }
 
-    let b64_type = base64::encode(&blob_id[2..]);
-    let decoded_blob_id = format!("&{}{}", b64_type, blob_extension.to_string());
+    let b64_data = base64::encode(&blob_id[2..]);
+    let decoded_blob_id = format!("&{}{}", b64_data, blob_extension.to_string());
 
     Ok(decoded_blob_id)
 }
@@ -350,16 +354,18 @@ pub fn decode_bool(boolean: Vec<u8>) -> bool {
 /// Take a private box as an encoded byte vector and return a decoded string representation.
 pub fn decode_box(box_vec: Vec<u8>) -> Result<String> {
     let box_extension;
-    if &box_vec[..2] == BOX1_TF {
-        box_extension = ".box"
-    } else if &box_vec[..2] == BOX2_TF {
-        box_extension = ".box2"
+
+    if &box_vec[..2] == ENCRYPTED_FORMATS["box1"].0 {
+        // assign the suffix (`Some(suffix)` at tuple index 4)
+        box_extension = ENCRYPTED_FORMATS["box1"].4.unwrap()
+    } else if &box_vec[..2] == ENCRYPTED_FORMATS["box2"].0 {
+        box_extension = ENCRYPTED_FORMATS["box2"].4.unwrap()
     } else {
         return Err(anyhow!("Unknown box: {:?}", box_vec));
     }
 
-    let b64_type = base64::encode(&box_vec[2..]);
-    let decoded_box = format!("{}{}", b64_type, box_extension.to_string());
+    let b64_data = base64::encode(&box_vec[2..]);
+    let decoded_box = format!("{}{}", b64_data, box_extension.to_string());
 
     Ok(decoded_box)
 }
@@ -367,19 +373,15 @@ pub fn decode_box(box_vec: Vec<u8>) -> Result<String> {
 /// Take a feed ID (key) as an encoded byte vector and return a decoded string representation.
 pub fn decode_feed(feed_id: Vec<u8>) -> Result<String> {
     let feed_extension;
-    if &feed_id[..2] == CLASSIC_FEED_TF {
+    if &feed_id[..2] == FEED_FORMATS["classic"].0 {
         feed_extension = ".ed25519"
-    } else if &feed_id[..2] == BENDYBT_FEED_TF {
-        feed_extension = ".bbfeed-v1"
-    } else if &feed_id[..2] == GABBYGR_FEED_TF {
-        feed_extension = ".ggfeed-v1"
     } else {
         return Err(anyhow!("Unknown feed ID: {:?}", feed_id));
     }
 
     // encode the last two bytes of the feed identity as base64
-    let b64_type = base64::encode(&feed_id[2..]);
-    let decoded_feed_id = format!("@{}{}", b64_type, feed_extension.to_string());
+    let b64_data = base64::encode(&feed_id[2..]);
+    let decoded_feed_id = format!("@{}{}", b64_data, feed_extension.to_string());
 
     Ok(decoded_feed_id)
 }
@@ -390,26 +392,24 @@ pub fn decode_msg(msg_id: Vec<u8>) -> Result<Option<String>> {
         return Ok(None);
     }
     let msg_extension;
-    if &msg_id[..2] == CLASSIC_MSG_TF {
+    if &msg_id[..2] == MSG_FORMATS["classic"].0 {
         msg_extension = ".sha256"
-    } else if &msg_id[..2] == BENDYBT_MSG_TF {
-        msg_extension = ".bbmsg-v1"
-    } else if &msg_id[..2] == GABBYGR_MSG_TF {
-        msg_extension = ".ggmsg-v1"
+    } else if &msg_id[..2] == MSG_FORMATS["cloaked"].0 {
+        msg_extension = ".cloaked"
     } else {
         return Err(anyhow!("Unknown message ID: {:?}", msg_id));
     }
 
-    let b64_type = base64::encode(&msg_id[2..]);
-    let decoded_msg_id = format!("%{}{}", b64_type, msg_extension.to_string());
+    let b64_data = base64::encode(&msg_id[2..]);
+    let decoded_msg_id = format!("%{}{}", b64_data, msg_extension.to_string());
 
     Ok(Some(decoded_msg_id))
 }
 
 /// Take a signature as an encoded byte vector and return a string.
 pub fn decode_sig(sig: Vec<u8>) -> Result<String> {
-    let b64_type = base64::encode(&sig[2..]);
-    let decoded_sig = format!("{}.sig.ed25519", b64_type);
+    let b64_data = base64::encode(&sig[2..]);
+    let decoded_sig = format!("{}.sig.ed25519", b64_data);
 
     Ok(decoded_sig)
 }
@@ -421,6 +421,38 @@ pub fn decode_string(string: Vec<u8>) -> Result<String> {
         .to_owned();
 
     Ok(decoded_string)
+}
+
+/// Take an SSB URI as an encoded byte vector and return a string.
+pub fn decode_uri(uri: Vec<u8>) -> Result<String> {
+    let uri_type;
+    let uri_format;
+
+    if &uri[..2] == FEED_FORMATS["gabbygrove-v1"].0 {
+        uri_type = "feed";
+        uri_format = "gabbygrove-v1";
+    } else if &uri[..2] == FEED_FORMATS["bendybutt-v1"].0 {
+        uri_type = "feed";
+        uri_format = "bendybutt-v1";
+    } else if &uri[..2] == MSG_FORMATS["gabbygrove-v1"].0 {
+        uri_type = "message";
+        uri_format = "gabbygrove-v1";
+    } else if &uri[..2] == MSG_FORMATS["bendybutt-v1"].0 {
+        uri_type = "message";
+        uri_format = "bendybutt-v1";
+    } else {
+        return Err(anyhow!(
+            "Unknown type-format {:?} for encoded URI: {:?}",
+            &uri[..2],
+            uri
+        ));
+    }
+
+    let b64_data = base64::encode(&uri[2..]);
+    let parts = Parts(uri_type.to_string(), uri_format.to_string(), b64_data);
+    let decoded_uri = ssb_uri_rs::compose_uri(parts)?;
+
+    Ok(decoded_uri)
 }
 
 /// Take a BFE value, match on the value type(s) and call the appropriate decoder(s).
@@ -443,24 +475,33 @@ pub fn decode(value: &BfeValue) -> Result<Value> {
                     "Buffer is missing first two type&format fields: {:?}",
                     buf
                 ));
-            } else if &buf[..2] == STRING_TF {
+            // uris (match on type-format code at tuple index `0`)
+            } else if &buf[..2] == FEED_FORMATS["gabbygrove-v1"].0
+                || &buf[..2] == FEED_FORMATS["bendybutt-v1"].0
+                || &buf[..2] == MSG_FORMATS["gabbygrove-v1"].0
+                || &buf[..2] == MSG_FORMATS["bendybutt-v1"].0
+            {
+                decoded_buf = Some(decode_uri(buf.to_vec())?)
+            // generic types
+            } else if &buf[..2] == GENERIC_FORMATS["string-UTF8"].0 {
                 decoded_buf = Some(decode_string(buf.to_vec())?)
-            } else if &buf[..2] == BOOL_TF {
+            } else if &buf[..2] == GENERIC_FORMATS["boolean"].0 {
                 return Ok(json!(decode_bool(buf.to_vec())));
-            } else if &buf[..2] == NIL_TF {
+            } else if &buf[..2] == GENERIC_FORMATS["nil"].0 {
                 decoded_buf = None
-            } else if &buf[..1] == FEED_T {
+            // classic types
+            } else if &buf[..1] == TYPES["feed"].0 {
                 decoded_buf = Some(decode_feed(buf.to_vec())?)
-            } else if &buf[..1] == MSG_T {
+            } else if &buf[..1] == TYPES["message"].0 {
                 // ignore the None return type (msg.len() == 2)
                 if let Some(val) = decode_msg(buf.to_vec())? {
                     decoded_buf = Some(val)
                 }
-            } else if &buf[..1] == BLOB_T {
+            } else if &buf[..1] == TYPES["blob"].0 {
                 decoded_buf = Some(decode_blob(buf.to_vec())?)
-            } else if &buf[..1] == BOX_T {
+            } else if &buf[..1] == TYPES["encrypted"].0 {
                 decoded_buf = Some(decode_box(buf.to_vec())?)
-            } else if &buf[..2] == SIGNATURE_TF {
+            } else if &buf[..2] == SIGNATURE_FORMATS["msg-ed25519"].0 {
                 decoded_buf = Some(decode_sig(buf.to_vec())?)
             } else {
                 // no match: return the buffer value without decoding
@@ -484,16 +525,10 @@ pub fn decode(value: &BfeValue) -> Result<Value> {
 
 #[cfg(test)]
 mod tests {
+    use crate::data::*;
     use crate::BfeValue;
-    use crate::{
-        decode, decode_blob, decode_bool, decode_box, decode_feed, decode_msg, decode_sig,
-        decode_string, encode, encode_blob, encode_bool, encode_box, encode_feed, encode_msg,
-        encode_sig, encode_string, get_box_type, get_feed_type, get_msg_type,
-    };
-    use crate::{
-        BENDYBT_FEED_TF, BENDYBT_MSG_TF, BOX1_TF, BOX2_TF, CLASSIC_FEED_TF, CLASSIC_MSG_TF,
-        GABBYGR_FEED_TF, GABBYGR_MSG_TF,
-    };
+    use crate::*;
+
     use serde_json::json;
 
     #[test]
@@ -501,7 +536,7 @@ mod tests {
         let result = get_box_type(BOX_1);
         assert!(result.is_ok());
         let result_code = result.unwrap();
-        assert_eq!(result_code, BOX1_TF);
+        assert_eq!(result_code, ENCRYPTED_FORMATS["box1"].0);
     }
 
     #[test]
@@ -509,15 +544,7 @@ mod tests {
         let result = get_box_type(BOX_2);
         assert!(result.is_ok());
         let result_code = result.unwrap();
-        assert_eq!(result_code, BOX2_TF);
-    }
-
-    #[test]
-    fn get_feed_type_matches_bendy_butt() {
-        let result = get_feed_type(BB_FEED);
-        assert!(result.is_ok());
-        let result_code = result.unwrap();
-        assert_eq!(result_code, BENDYBT_FEED_TF);
+        assert_eq!(result_code, ENCRYPTED_FORMATS["box2"].0);
     }
 
     #[test]
@@ -525,15 +552,7 @@ mod tests {
         let result = get_feed_type(CLASSIC_FEED);
         assert!(result.is_ok());
         let result_code = result.unwrap();
-        assert_eq!(result_code, CLASSIC_FEED_TF);
-    }
-
-    #[test]
-    fn get_feed_type_matches_gabby_grove() {
-        let result = get_feed_type(GG_FEED);
-        assert!(result.is_ok());
-        let result_code = result.unwrap();
-        assert_eq!(result_code, GABBYGR_FEED_TF);
+        assert_eq!(result_code, FEED_FORMATS["classic"].0);
     }
 
     #[test]
@@ -543,27 +562,11 @@ mod tests {
     }
 
     #[test]
-    fn get_msg_type_matches_bendy_butt() {
-        let result = get_msg_type(BB_MSG);
-        assert!(result.is_ok());
-        let result_code = result.unwrap();
-        assert_eq!(result_code, BENDYBT_MSG_TF);
-    }
-
-    #[test]
     fn get_msg_type_matches_classic() {
         let result = get_msg_type(CLASSIC_MSG);
         assert!(result.is_ok());
         let result_code = result.unwrap();
-        assert_eq!(result_code, CLASSIC_MSG_TF);
-    }
-
-    #[test]
-    fn get_msg_type_matches_gabby_grove() {
-        let result = get_msg_type(GG_MSG);
-        assert!(result.is_ok());
-        let result_code = result.unwrap();
-        assert_eq!(result_code, GABBYGR_MSG_TF);
+        assert_eq!(result_code, MSG_FORMATS["classic"].0);
     }
 
     #[test]
@@ -577,8 +580,7 @@ mod tests {
         let encoded = encode_blob(BLOB);
         assert!(encoded.is_ok());
         let encoded_value = encoded.unwrap();
-        let expected = vec![2, 0];
-        assert_eq!(expected, &encoded_value[..2]);
+        assert_eq!(&encoded_value[..2], BLOB_FORMATS["classic"].0);
         let decoded = decode_blob(encoded_value);
         assert!(decoded.is_ok());
         let decoded_value = decoded.unwrap();
@@ -590,8 +592,8 @@ mod tests {
         let encoded = encode_bool(&true);
         assert!(encoded.is_ok());
         let encoded_value = encoded.unwrap();
-        let expected = vec![6, 1, 1];
-        assert_eq!(expected, encoded_value);
+        let expected = [GENERIC_FORMATS["boolean"].0, BOOL_TRUE].concat();
+        assert_eq!(encoded_value, expected);
         let decoded = decode_bool(encoded_value);
         assert_eq!(true, decoded);
     }
@@ -601,8 +603,7 @@ mod tests {
         let encoded = encode_box(BOX_1);
         assert!(encoded.is_ok());
         let encoded_value = encoded.unwrap();
-        let expected = vec![5, 0];
-        assert_eq!(expected, &encoded_value[..2]);
+        assert_eq!(&encoded_value[..2], ENCRYPTED_FORMATS["box1"].0);
         let decoded = decode_box(encoded_value);
         assert!(decoded.is_ok());
         let decoded_value = decoded.unwrap();
@@ -614,8 +615,7 @@ mod tests {
         let encoded = encode_box(BOX_2);
         assert!(encoded.is_ok());
         let encoded_value = encoded.unwrap();
-        let expected = vec![5, 1];
-        assert_eq!(expected, &encoded_value[..2]);
+        assert_eq!(&encoded_value[..2], ENCRYPTED_FORMATS["box2"].0);
         let decoded = decode_box(encoded_value);
         assert!(decoded.is_ok());
         let decoded_value = decoded.unwrap();
@@ -623,23 +623,31 @@ mod tests {
     }
 
     #[test]
-    fn encode_and_decode_feed_works() {
-        let encoded = encode_feed(BB_FEED);
+    fn encode_and_decode_bb_feed_uri_works() {
+        let encoded = encode_uri(BB_FEED_URI);
         assert!(encoded.is_ok());
         let encoded_value = encoded.unwrap();
-        let expected = vec![
-            0, 3, 232, 32, 49, 56, 141, 223, 248, 181, 14, 86, 182, 192, 151, 66, 30, 154, 168,
-            146, 236, 4, 233, 66, 250, 253, 49, 220, 61, 44, 46, 62, 82, 253,
-        ];
-        assert_eq!(expected, encoded_value);
-        let decoded = decode_feed(encoded_value);
+        assert_eq!(&encoded_value[..2], &[0x00, 0x03]);
+        let decoded = decode_uri(encoded_value);
         assert!(decoded.is_ok());
         let decoded_value = decoded.unwrap();
-        assert_eq!(BB_FEED, decoded_value);
+        assert_eq!(BB_FEED_URI, decoded_value);
     }
 
     #[test]
-    fn encode_and_decode_msg_works() {
+    fn encode_and_decode_gg_feed_uri_works() {
+        let encoded = encode_uri(GG_FEED_URI);
+        assert!(encoded.is_ok());
+        let encoded_value = encoded.unwrap();
+        assert_eq!(&encoded_value[..2], &[0x00, 0x01]);
+        let decoded = decode_uri(encoded_value);
+        assert!(decoded.is_ok());
+        let decoded_value = decoded.unwrap();
+        assert_eq!(GG_FEED_URI, decoded_value);
+    }
+
+    #[test]
+    fn encode_and_decode_classic_msg_works() {
         let encoded = encode_msg(CLASSIC_MSG);
         assert!(encoded.is_ok());
         let encoded_value = encoded.unwrap();
@@ -654,6 +662,30 @@ mod tests {
         assert!(decoded_option.is_some());
         let decoded_value = decoded_option.unwrap();
         assert_eq!(CLASSIC_MSG, decoded_value);
+    }
+
+    #[test]
+    fn encode_and_decode_bb_msg_uri_works() {
+        let encoded = encode_uri(BB_MSG_URI);
+        assert!(encoded.is_ok());
+        let encoded_value = encoded.unwrap();
+        assert_eq!(&encoded_value[..2], &[0x01, 0x04]);
+        let decoded = decode_uri(encoded_value);
+        assert!(decoded.is_ok());
+        let decoded_value = decoded.unwrap();
+        assert_eq!(BB_MSG_URI, decoded_value);
+    }
+
+    #[test]
+    fn encode_and_decode_gg_msg_works() {
+        let encoded = encode_uri(GG_MSG_URI);
+        assert!(encoded.is_ok());
+        let encoded_value = encoded.unwrap();
+        assert_eq!(&encoded_value[..2], &[0x01, 0x01]);
+        let decoded = decode_uri(encoded_value);
+        assert!(decoded.is_ok());
+        let decoded_value = decoded.unwrap();
+        assert_eq!(GG_MSG_URI, decoded_value);
     }
 
     #[test]
@@ -751,11 +783,13 @@ mod tests {
     const BLOB: &str = "&S7+CwHM6dZ9si5Vn4ftpk/l/ldbRMqzzJos+spZbWf4=.sha256";
     const BOX_1: &str = "siZEm1zFx1icq0SrEynGDpNRmJCXMxTB3iEteXFn+IhJH8WhMbT8tp9qOIaFkIYcdOyerSon6RK0l4RE1ZdDh/3lcGZSdP0Ljq59qsdqlf2ngwbIbV9AWdPRrPsoVZBV6RhI+YcVTloWWP5aauu1hZKjcm62ezLBTQ3EmFPYtDuwsOFkx9/7FP97ljhj67CwvlGzuiWp6FNICHbt5kOCxs9H0k6Tr8JJVdaJtJ2pqkX4p0ECMuEuYxCYbh3FpncCqlNZJXb0dj3iSsfsMNWTJLDqfkqJKH1jBVfxDL6+xAXBDS+E4F2hD4y9gRDZEej99uVBQWlbxr5eCRV+VbfBGYxwoAYtqux6rg3jBabImKKinBwHShEP5F/+wlb9IxQn4swyOgyv+UKx/jbx+91Ayso5bnNPZMpwRRX5p5DbpK1BnryeVJhktMgFqgni1g0lHyU8sQ2QzwZgXGw7dfYoamkqK4D24NOLnUoHuVuhd7Q5SxZWSAO6wpDa4nrODePoJdl328pbMwCoQlUNeHINmKxh/o/oCNbgXitn4oN3kSVEg/umdgwwI94gmZUjiYwP1v7HA7dI.box";
     const BOX_2: &str = "WQyfhDDHQ1gH34uppHbj8SldRu8hD2764gQ6TAhaVp6R01EMBnJQj5ewD5F+UT5NwvV91uU8q5XCjuvcP4ihCJ0RtX8HjKyN+tDKP5gKB3UZo/eO/rP5CcPGoIG7pcLBsd3DQbZLfTnb/iqECEji9gclNcGENTS2u6aATwbQ4uQ7RzIAKKT2NfC2qk86p/gXC2owDFAazuPlQTT8DMNvO8G52gb48a75CGKsDAevrC//Bz38VFxwUiTKzRWaxCbTK9knj39u3qoCP9VLyyRqITgNwvlGLP7ndchTyBiO0TPNkb9PAOenw5WBjyWhA61hpG+VkKpkaysBVGjXYv8OpV1HGbs87TI79uT7JrNV4wEZiwqGknwmCi5B2gbd7tav8yDXsK5yQgDncHQjZotsBFX2adP7Jli9WmvV3xX5lL3kBNKV0ZiE/DZUgB2m1OXvCjNI4fuZhnpZpEQi9coO+icrirKiH/UA8TS9HI72cIbkEJVxOTnKnsgr3Qc/5HhtRS17a54ymVmBsnpP+KqqCqKLN50TInb7qoUlvQ2nw07xX3Ig9usLb8Ik8U8XMb6SLqACxlZN/qW4EJzxVetoIk84AU1yLInK6v9dzfsewRYBXW8+lYbyxVNuIIK4pKYsx2WbjuJyZHgjgbCdGf/kjqP5rDs4zwqj2lmkO70PoEUrcSi46J2hkqtcrd1yl+F3/BDwFlxAXH+x4+LhmT7g+BSgzRUbWvCyeB+HJaoao6g4K/Fs8HxnbVB1zW761OQJaQnV86ZThkvUjXh2SEBlBd+D94eUCqIJkjI7RLt+D/0gxg/D7u1Zq14UxRijZryB51An7GdXtEc2xhU+Bh/aPmKmMZ9D/ArdglSlnVUD8OIBVVw5jtooGlhxbOFHM4N5SoAO/yWPcbcuQz7t4SPij358rY574DLBGZEPCrS6KPpnrlqlnZK4f6/+9zv3hfzNTXVvJtxZL/rvmNvbgh7LpMnSqjnsXqm86a3GXeVWD83TdCnL1oPqEi/8RItTrjy01DmVhUoV6t12STP4mHb8RjR+/ks+7lowfV3HQ13n6if0g0/u+Bzv6XXOX6iePPOHA3lFv2MSPKf9JZ0uQiqajR03YkNE8YnSTYu0Io1cGPZ/lWBp2tyWtwFmGtqw/9+O165tJhrdU2EXJ4T/XP136WpLD2+vtYsx3Xr5lfeD12/g+I/6jwduqTuHpst2tqvcSWoZ4DAWcpcKJ1mUbJU3/mLAYGwWb3XuqMOgJOLoztAwd5xFzUZD1MnR/iyYoZ2weYTSOz3OKR3cJyCjxBhIGaX5xpAc61K1dXNfERBJr9TS0mL2578dd5AauE6Ksn6YlGxNJIVC3VpdAtRbVHNX1g==.box2";
-    const BB_FEED: &str = "@6CAxOI3f+LUOVrbAl0IemqiS7ATpQvr9Mdw9LC4+Uv0=.bbfeed-v1";
+    const BB_FEED_URI: &str = "ssb:feed/bendybutt-v1/6CAxOI3f-LUOVrbAl0IemqiS7ATpQvr9Mdw9LC4-Uv0=";
     const CLASSIC_FEED: &str = "@d/zDvFswFbQaYJc03i47C9CgDev+/A8QQSfG5l/SEfw=.ed25519";
-    const GG_FEED: &str = "@6CAxOI3f+LUOVrbAl0IemqiS7ATpQvr9Mdw9LC4+Uv0=.ggfeed-v1";
-    const BB_MSG: &str = "%R8heq/tQoxEIPkWf0Kxn1nCm/CsxG2CDpUYnAvdbXY8=.bbmsg-v1";
+    const GG_FEED_URI: &str = "ssb:feed/gabbygrove-v1/FY5OG311W4j_KPh8H9B2MZt4WSziy_p-ABkKERJdujQ=";
+    const BB_MSG_URI: &str =
+        "ssb:message/bendybutt-v1/HZVnEzm0NgoSVfG0Hx4gMFbMMHhFvhJsG2zK_pijYII=";
     const CLASSIC_MSG: &str = "%R8heq/tQoxEIPkWf0Kxn1nCm/CsxG2CDpUYnAvdbXY8=.sha256";
-    const GG_MSG: &str = "%R8heq/tQoxEIPkWf0Kxn1nCm/CsxG2CDpUYnAvdbXY8=.ggmsg-v1";
+    const GG_MSG_URI: &str =
+        "ssb:message/gabbygrove-v1/QibgMEFVrupoOpiILKVoNXnhzdVQVZf7dkmL9MSXO5g=";
     const SIG: &str = "nkY4Wsn9feosxvX7bpLK7OxjdSrw6gSL8sun1n2TMLXKySYK9L5itVQnV2nQUctFsrUOa2istD2vDk1B0uAMBQ==.sig.ed25519";
 }
