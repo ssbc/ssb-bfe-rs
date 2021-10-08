@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2021 Andrew 'glyph' Reid
+#
+# SPDX-License-Identifier: Unlicense
+
 [package]
 name = "ssb-bfe-rs"
 version = "0.2.0"

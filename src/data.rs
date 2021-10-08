@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2021 Andrew 'glyph' Reid
+//
+// SPDX-License-Identifier: LGPL-3.0-only
+
 /// # Binary Field Encoding (BFE) Specification Data
 ///
 /// All the constant values used for BFE, as defined in the [specification](https://github.com/ssb-ngi-pointer/ssb-bfe-spec/blob/master/bfe.json). This library is consistent with version `0.4.0` of the specification.

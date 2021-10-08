@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2021 Andrew 'glyph' Reid
+
+SPDX-License-Identifier: CC0-1.0
+-->
+
 # ssb-bfe-rs
 
 Binary Field Encodings (BFE) for Secure Scuttlebutt (SSB).

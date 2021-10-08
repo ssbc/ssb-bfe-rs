@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2021 Andrew 'glyph' Reid
+#
+# SPDX-License-Identifier: Unlicense
+
 # This workflow runs `cargo check`, `cargo test`, `cargo fmt` and `cargo clippy` when a pull-request is created. The stable toolchain is used for all jobs. See actions-rs for more information: https://github.com/actions-rs
 
 on:
